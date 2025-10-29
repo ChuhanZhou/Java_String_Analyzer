@@ -3,8 +3,7 @@ import argparse
 
 from analyzers import syntaxer
 
-syntaxer.JAVA_MAIN_PATH = syntaxer.JAVA_MAIN_PATH[1:]
-syntaxer.JAVA_CLASS_PATH = syntaxer.JAVA_CLASS_PATH[1:]
+syntaxer.JAVA_ROOT_PATH = "."
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Static Analyzer")

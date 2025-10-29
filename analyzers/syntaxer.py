@@ -6,8 +6,9 @@ import re
 import subprocess
 import os
 
-JAVA_MAIN_PATH = "../src/main/java"
-JAVA_CLASS_PATH = "../target/classes"
+JAVA_ROOT_PATH = ".."
+JAVA_MAIN_PATH = "src/main/java"
+JAVA_CLASS_PATH = "target/classes"
 JAVA_CASE_PATH = "jpamb/cases"
 
 SUB_OPCODE_LIST = ["aload","astore","dconst","dload","dstore","dup","dup2","fconst","fload","fstore","iconst","iload","istore","lconst","lload","lstore"]
@@ -79,23 +80,23 @@ def analyze_ast(tree):
 def compile(name):
     subprocess.run([
         "javac",
-        "-d",JAVA_CLASS_PATH,
-        "/".join([JAVA_MAIN_PATH, JAVA_CASE_PATH, "{}.java".format(name)]),
-        "/".join([JAVA_MAIN_PATH, "jpamb/utils/Cases.java"]),
-        "/".join([JAVA_MAIN_PATH, "jpamb/utils/Case.java"]),
+        "-d","/".join([JAVA_ROOT_PATH, JAVA_CLASS_PATH]),
+        "/".join([JAVA_ROOT_PATH, JAVA_MAIN_PATH, JAVA_CASE_PATH, "{}.java".format(name)]),
+        "/".join([JAVA_ROOT_PATH, JAVA_MAIN_PATH, "jpamb/utils/Cases.java"]),
+        "/".join([JAVA_ROOT_PATH, JAVA_MAIN_PATH, "jpamb/utils/Case.java"]),
        ], check=True)
 
 def decompile_bytecode(name):
     method_opcodes = {}
 
-    java_path = "/".join([JAVA_MAIN_PATH, JAVA_CASE_PATH, "{}.java".format(name)])
-    class_path = "/".join([JAVA_CLASS_PATH, JAVA_CASE_PATH, "{}.class".format(name)])
+    java_path = "/".join([JAVA_ROOT_PATH, JAVA_MAIN_PATH, JAVA_CASE_PATH, "{}.java".format(name)])
+    class_path = "/".join([JAVA_ROOT_PATH, JAVA_CLASS_PATH, JAVA_CASE_PATH, "{}.class".format(name)])
     if not os.path.exists(class_path) or os.path.getmtime(java_path) > os.path.getmtime(class_path):
         compile(name)
 
-    result = subprocess.run(["javap", "-c", "-classpath", JAVA_CLASS_PATH, "jpamb.cases.{}".format(name)],capture_output=True, text=True, check=True)
+    result = subprocess.run(["javap", "-c", "-classpath", "/".join([JAVA_ROOT_PATH, JAVA_CLASS_PATH]), "jpamb.cases.{}".format(name)],capture_output=True, text=True, check=True)
     #print(result.stdout)
-    #print(subprocess.run(["javap", "-v", "-classpath", JAVA_CLASS_PATH, "jpamb.cases.{}".format(name)],capture_output=True, text=True, check=True).stdout)
+    #print(subprocess.run(["javap", "-v", "-classpath", "/".join([JAVA_ROOT_PATH, JAVA_CLASS_PATH]), "jpamb.cases.{}".format(name)],capture_output=True, text=True, check=True).stdout)
 
     method_bytecodes = result.stdout.split("\n\n")[1:]
     for decompiled_info in method_bytecodes:
@@ -151,7 +152,7 @@ def decode_bytecode(code_line):
             raise NotImplementedError("Don't know how to decode: {}".format(code_line))
 
 def get_simplify_ast(name):
-    src_path = "/".join([JAVA_MAIN_PATH, JAVA_CASE_PATH, "{}.java".format(name)])
+    src_path = "/".join([JAVA_ROOT_PATH, JAVA_MAIN_PATH, JAVA_CASE_PATH, "{}.java".format(name)])
 
     JAVA_LANGUAGE = tree_sitter.Language(tree_sitter_java.language())
     parser = tree_sitter.Parser(JAVA_LANGUAGE)

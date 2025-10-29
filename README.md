@@ -11,5 +11,5 @@ git clone https://github.com/ChuhanZhou/Java_Static_Analyzer.git
 
 ### Clone [JPAMB](https://github.com/kalhauge/jpamb) benchmark suite
 ```
-git clone https://github.com/kalhauge/jpamb.git
+clone_jpamb.sh
 ```
