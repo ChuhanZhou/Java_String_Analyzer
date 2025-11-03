@@ -7,8 +7,8 @@ import subprocess
 import os
 
 JAVA_ROOT_PATH = ".."
-JAVA_MAIN_PATH = "src/main/java"
-JAVA_CLASS_PATH = "target/classes"
+JAVA_MAIN_PATH = "benchmark_suite/src/main/java"
+JAVA_CLASS_PATH = "benchmark_suite/target/classes"
 JAVA_CASE_PATH = "jpamb/cases"
 
 SUB_OPCODE_LIST = ["aload","astore","dconst","dload","dstore","dup","dup2","fconst","fload","fstore","iconst","iload","istore","lconst","lload","lstore"]
