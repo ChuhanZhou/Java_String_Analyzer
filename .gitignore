@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual Environment
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# keep new cases
+benchmark_suite/*
+!benchmark_suite/src
+benchmark_suite/src/*
+!benchmark_suite/src/main
+benchmark_suite/src/main/*
+!benchmark_suite/src/main/java
+benchmark_suite/src/main/java/*
+!benchmark_suite/src/main/java/jpamb
+benchmark_suite/src/main/java/jpamb/*
+!benchmark_suite/src/main/java/jpamb/cases
+benchmark_suite/src/main/java/jpamb/cases/Arrays.java
+benchmark_suite/src/main/java/jpamb/cases/Calls.java
+benchmark_suite/src/main/java/jpamb/cases/Loops.java
+benchmark_suite/src/main/java/jpamb/cases/Simple.java
+benchmark_suite/src/main/java/jpamb/cases/Tricky.java
