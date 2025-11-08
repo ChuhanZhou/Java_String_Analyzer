@@ -143,6 +143,7 @@ def run_bytecodes(bytecodes_tuple, input_values):
                 pc += 1
                 
             elif opcode == "new":
+                stack.append(-1)
                 pc += 1
                 
             elif opcode == "dup":
