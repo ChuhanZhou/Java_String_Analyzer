@@ -29,3 +29,5 @@ benchmark_suite/src/main/java/jpamb/cases/Calls.java
 benchmark_suite/src/main/java/jpamb/cases/Loops.java
 benchmark_suite/src/main/java/jpamb/cases/Simple.java
 benchmark_suite/src/main/java/jpamb/cases/Tricky.java
+
+!benchmark_suite/src/main/java/jpamb/cases/Strings.java
