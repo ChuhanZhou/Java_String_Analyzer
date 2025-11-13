@@ -6,6 +6,7 @@ import argparse
 
 from analyzers import syntaxer
 from analyzers import interpreter
+from analyzers import abstractInterpreter as abs_interp
 
 syntaxer.JAVA_ROOT_PATH = "."
 
@@ -27,28 +28,57 @@ if __name__ == '__main__':
         method_name = method.name
         bytecodes = method.bytecodes
 
-        for case in method.cases:
-            case_parameters = case["inputs"]
-            true_result = case["result"]
+        num_params = len(method.parameters)
 
-            print(f"     Inputs: {case_parameters}")
-            print(f"     Expected: {true_result}")
+        print(f"\n{'=' * 80}")
+        print(f"Method: {method_name}")
+        print(f"{'=' * 80}")
 
-            result = interpreter.run_test_case(
-                method.bytecodes,
-                case["inputs"],
-                method.parameters
-            )
+        print("\n[Abstract Analysis]")
+        
+        # Sign Domain
+        sign_analyzer = abs_interp.AbstractInterpreter(
+            bytecodes, 
+            use_interval=False, 
+            use_widening=False
+        )
+        sign_analyzer.analyze(num_params)
+        sign_result = sign_analyzer.get_result_string()
+        print(f"  Sign Domain:     {sign_result}")
+        
+        # Interval Domain
+        interval_analyzer = abs_interp.AbstractInterpreter(
+            bytecodes, 
+            use_interval=True, 
+            use_widening=True
+        )
+        interval_analyzer.analyze(num_params)
+        interval_result = interval_analyzer.get_result_string()
+        print(f"  Interval Domain: {interval_result}")
+
+        if method.cases:
+            print(f"\n[Concrete Execution]")
             
-            print(f"     Result: {result}")
+            for i, case in enumerate(method.cases, 1):
+                case_parameters = case["inputs"]
+                expected_result = case["result"]
 
-            if result == true_result:
-                print(f"     ✓ PASS")
-            elif result.startswith("ok") and true_result == "ok":
-                print(f"     ✓ PASS")
-            elif result.startswith("error"):
-                print(f"     ⚠ SKIP ({result})")
-            else:
-                print(f"     ✗ FAIL")
+                result = interpreter.run_test_case(
+                    method.bytecodes,
+                    case["inputs"],
+                    method.parameters
+                )
+                
+                concrete_match = result == expected_result or (result.startswith("ok") and expected_result == "ok")
+                
+                concrete_mark = "✓" if concrete_match else "✗"
+
+                print(f"\n  Test {i}: {case_parameters}")
+                print(f"    Expected:  {expected_result}")
+                print(f"    Concrete:  {result} {concrete_mark}")
+                
+            
+            
+            
+            
     
-    print("---------------------------")
