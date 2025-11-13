@@ -24,9 +24,13 @@ if __name__ == '__main__':
     methods = syntaxer.get_simplify_ast(case_name)
 
     # Semantics Analysis
+    total_case_num = 0
+    passed_case_num = 0
     for method in methods:
         method_name = method.name
         bytecodes = method.bytecodes
+
+        print("[Method] {}:".format(method_name))
 
         num_params = len(method.parameters)
 
@@ -56,26 +60,36 @@ if __name__ == '__main__':
         interval_result = interval_analyzer.get_result_string()
         print(f"  Interval Domain: {interval_result}")
 
-        if method.cases:
-            print(f"\n[Concrete Execution]")
-            
-            for i, case in enumerate(method.cases, 1):
-                case_parameters = case["inputs"]
-                expected_result = case["result"]
+        print(f"\n[Concrete Execution]")
+        for case in method.cases:
+            case_parameters = case["inputs"]
+            expected_result = case["result"]
 
-                result = interpreter.run_test_case(
-                    method.bytecodes,
-                    case["inputs"],
-                    method.parameters
-                )
+            result = interpreter.run_test_case(
+                method.bytecodes,
+                case["inputs"],
+                method.parameters
+            )
                 
-                concrete_match = result == expected_result or (result.startswith("ok") and expected_result == "ok")
+            concrete_match = result == expected_result or (result.startswith("ok") and expected_result == "ok")
                 
-                concrete_mark = "✓" if concrete_match else "✗"
+            concrete_mark = "✓" if concrete_match else "✗"
 
-                print(f"\n  Test {i}: {case_parameters}")
-                print(f"    Expected:  {expected_result}")
-                print(f"    Concrete:  {result} {concrete_mark}")
+            print(f"\n  Test : {case_parameters}")
+            print(f"    Expected:  {expected_result}")
+            print(f"    Concrete:  {result} {concrete_mark}")
+'''
+            total_case_num += 1
+            result = "FAIL"
+            if result == expected_result:
+                result = "PASS"
+                passed_case_num += 1
+
+            print("\t[{}] ({}) => {} | {}".format(result,", ".join(case_parameters),result,expected_result))
+    
+        analysis_print = "[Pass Rate]: {:.2f}% ({}/{})".format(passed_case_num/total_case_num*10**2,passed_case_num,total_case_num)
+        print("-"*len(analysis_print))
+        print(analysis_print)'''
                 
             
             

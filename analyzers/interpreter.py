@@ -2,10 +2,6 @@
 from dataclasses import dataclass
 from pathlib import Path
 import sys
-from loguru import logger
-
-logger.remove()
-logger.add(sys.stderr, format="[{level}] {message}")
 
 def run_bytecodes(bytecodes_tuple, input_values):
     modifiers, instructions = bytecodes_tuple
