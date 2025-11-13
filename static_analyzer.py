@@ -1,5 +1,3 @@
-import sys
-import re
 from pathlib import Path
 import argparse
 
@@ -29,8 +27,6 @@ if __name__ == '__main__':
     for method in methods:
         method_name = method.name
         bytecodes = method.bytecodes
-
-        print("[Method] {}:".format(method_name))
 
         num_params = len(method.parameters)
 
@@ -70,26 +66,24 @@ if __name__ == '__main__':
                 case["inputs"],
                 method.parameters
             )
+
+            total_case_num += 1
                 
-            concrete_match = result == expected_result or (result.startswith("ok") and expected_result == "ok")
-                
+            concrete_match = result == expected_result or (result.startswith("ok") and expected_result == "ok") 
             concrete_mark = "✓" if concrete_match else "✗"
+
+            if concrete_match:
+                passed_case_num += 1
 
             print(f"\n  Test : {case_parameters}")
             print(f"    Expected:  {expected_result}")
             print(f"    Concrete:  {result} {concrete_mark}")
-'''
-            total_case_num += 1
-            result = "FAIL"
-            if result == expected_result:
-                result = "PASS"
-                passed_case_num += 1
 
-            print("\t[{}] ({}) => {} | {}".format(result,", ".join(case_parameters),result,expected_result))
-    
-        analysis_print = "[Pass Rate]: {:.2f}% ({}/{})".format(passed_case_num/total_case_num*10**2,passed_case_num,total_case_num)
-        print("-"*len(analysis_print))
-        print(analysis_print)'''
+    if total_case_num > 0:
+        print(f"\n{'=' * 80}")
+        analysis_print = f"[Pass Rate]: {passed_case_num/total_case_num*100:.2f}% ({passed_case_num}/{total_case_num})"
+        print(analysis_print)
+        print('=' * 80)
                 
             
             
