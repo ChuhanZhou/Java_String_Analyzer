@@ -166,26 +166,30 @@ class AbstractInt(object):
 
 
 class IntervalInt(object):
-    def __init__(self, low, high):
+    def __init__(self, low, high, exclude_zero=False):
         # Validate interval
         if low == float('inf') or high == float('-inf'):
             self.low = float('inf')
             self.high = float('-inf')
+            self.exclude_zero = False
         elif low > high:
             self.low = float('inf')
             self.high = float('-inf')
+            self.exclude_zero = False
         else:
             self.low = low
             self.high = high
+            self.exclude_zero = exclude_zero if (low <= 0 <= high) else False
+    
     
     def from_concrete(value):
-        return IntervalInt(value, value)
+        return IntervalInt(value, value, exclude_zero=False)
     
     def top():
-        return IntervalInt(float('-inf'), float('inf'))
+        return IntervalInt(float('-inf'), float('inf'), exclude_zero=False)
     
     def bottom():
-        return IntervalInt(float('inf'), float('-inf'))
+        return IntervalInt(float('inf'), float('-inf'), exclude_zero=False)
     
     def is_bottom(self):
         return self.low == float('inf') and self.high == float('-inf')
@@ -196,7 +200,17 @@ class IntervalInt(object):
     def contains(self, value):
         if self.is_bottom():
             return False
-        return self.low <= value <= self.high
+        in_range = self.low <= value <= self.high
+        if in_range and value == 0 and self.exclude_zero:
+            return False
+        return in_range
+    
+    def definitely_not_zero(self):
+        if self.low > 0 or self.high < 0:
+            return True
+        if self.exclude_zero and self.low <= 0 <= self.high:
+            return True
+        return False
     
     def join(self, other):
         if self.is_bottom():
@@ -206,7 +220,8 @@ class IntervalInt(object):
         
         new_low = min(self.low, other.low)
         new_high = max(self.high, other.high)
-        return IntervalInt(new_low, new_high)
+        new_exclude_zero = self.exclude_zero and other.exclude_zero
+        return IntervalInt(new_low, new_high, exclude_zero=new_exclude_zero)
     
     def meet(self, other):
         if self.is_bottom() or other.is_bottom():
@@ -218,7 +233,8 @@ class IntervalInt(object):
         if new_low > new_high:
             return IntervalInt.bottom()
         
-        return IntervalInt(new_low, new_high)
+        new_exclude_zero = self.exclude_zero or other.exclude_zero
+        return IntervalInt(new_low, new_high, exclude_zero=new_exclude_zero)
     
     def widen(self, other, constants):
         if self.is_bottom():
@@ -250,7 +266,7 @@ class IntervalInt(object):
         else:
             new_high = self.high
         
-        return IntervalInt(new_low, new_high)
+        return IntervalInt(new_low, new_high, exclude_zero=False)
     
     def __add__(self, other):
         if self.is_bottom() or other.is_bottom():
@@ -278,8 +294,11 @@ class IntervalInt(object):
         if self.is_bottom() or other.is_bottom():
             return IntervalInt.bottom()
         
-        if other.low <= 0 <= other.high:
+        if other.low <= 0 <= other.high and not other.exclude_zero:
             raise ZeroDivisionError("Abstract division by zero")
+        
+        if other.exclude_zero and other.low <= 0 <= other.high:
+            return IntervalInt.top()
         
         quotients = [
             self.low / other.low,
@@ -325,7 +344,10 @@ class IntervalInt(object):
         low_str = "-inf" if self.low == float('-inf') else str(int(self.low) if isinstance(self.low, float) else self.low)
         high_str = "+inf" if self.high == float('inf') else str(int(self.high) if isinstance(self.high, float) else self.high)
         
-        return f"[{low_str},{high_str}]"
+        result = f"[{low_str},{high_str}]"
+        if self.exclude_zero:
+            result += "\\{0}"
+        return result
     
     def __repr__(self):
         return self.__str__()
@@ -743,34 +765,42 @@ class AbstractInterpreter(object):
         if len(state.frame.stack) < 2:
             return []
         new_state = state.copy()
-        b = new_state.frame.stack.pop()
-        a = new_state.frame.stack.pop()
-        
-        definitely_zero = False
-        possibly_zero = False
+        b = new_state.frame.stack.pop()  
+        a = new_state.frame.stack.pop() 
         
         if self.use_interval and isinstance(b, IntervalInt):
             definitely_zero = (b.low == 0 and b.high == 0)
-            possibly_zero = (b.low <= 0 <= b.high)
+            definitely_not_zero = b.definitely_not_zero()  
+            possibly_zero = b.contains(0)
         else:  # Sign domain
             definitely_zero = (b.state_set == {Sign.ZERO})
             possibly_zero = (Sign.ZERO in b.state_set)
+            definitely_not_zero = not possibly_zero
         
         if definitely_zero:
             self.errors.append(f"PC {state.pc}: Definite division by zero")
             return []
-        elif possibly_zero:
+        
+        if definitely_not_zero:
+            result = a / b
+            new_state.frame.stack.append(result)
+            new_state.pc = self._get_next_pc(instr[0])
+            return [new_state]
+        
+        if possibly_zero:
             self.errors.append(f"PC {state.pc}: Possible division by zero")
-            return []
-        else:
-            try:
-                result = a / b
-                new_state.frame.stack.append(result)
-                new_state.pc = self._get_next_pc(instr[0])
-                return [new_state]
-            except ZeroDivisionError:
-                self.errors.append(f"PC {state.pc}: Division by zero")
-                return []
+            if self.use_interval:
+                result = IntervalInt.top()
+            else:
+                result = AbstractInt({Sign.POSITIVE, Sign.NEGATIVE, Sign.ZERO})
+            new_state.frame.stack.append(result)
+            new_state.pc = self._get_next_pc(instr[0])
+            return [new_state]
+        
+        result = a / b
+        new_state.frame.stack.append(result)
+        new_state.pc = self._get_next_pc(instr[0])
+        return [new_state]
     
     def _handle_irem(self, state, instr):
         if len(state.frame.stack) < 2:
@@ -778,22 +808,30 @@ class AbstractInterpreter(object):
         new_state = state.copy()
         b = new_state.frame.stack.pop()
         a = new_state.frame.stack.pop()
-        try:
+        if self.use_interval and isinstance(b, IntervalInt):
+            possibly_zero = (b.low <= 0 <= b.high)
+        else:  # Sign domain
+            possibly_zero = (Sign.ZERO in b.state_set)
+
+        if possibly_zero:
+            self.errors.append(f"PC {state.pc}: Possible division by zero (remainder)")
             if self.use_interval:
-                if b.low <= 0 <= b.high:
-                    raise ZeroDivisionError()
-                max_divisor = max(abs(b.low), abs(b.high))
-                result = IntervalInt(-max_divisor + 1 if a.low < 0 else 0, max_divisor - 1)
+                result = IntervalInt.top()
             else:
-                if Sign.ZERO in b.state_set:
-                    raise ZeroDivisionError()
-                result = AbstractInt(a.state_set.copy())
+                result = AbstractInt({Sign.POSITIVE, Sign.NEGATIVE, Sign.ZERO})
             new_state.frame.stack.append(result)
             new_state.pc = self._get_next_pc(instr[0])
             return [new_state]
-        except ZeroDivisionError:
-            self.errors.append(f"PC {state.pc}: Possible division by zero (remainder)")
-            return []
+        
+        if self.use_interval:
+            max_divisor = max(abs(b.low), abs(b.high))
+            result = IntervalInt(-max_divisor + 1 if a.low < 0 else 0, max_divisor - 1)
+        else:
+            result = AbstractInt(a.state_set.copy())
+        
+        new_state.frame.stack.append(result)
+        new_state.pc = self._get_next_pc(instr[0])
+        return [new_state]
     
     def _handle_ineg(self, state, instr):
         if not state.frame.stack:
@@ -829,7 +867,12 @@ class AbstractInterpreter(object):
         false_state = state.copy()
         false_state.frame.stack.pop()
         false_state.pc = self._get_next_pc(instr[0])
-        
+
+        local_idx = None
+        for idx, local_val in state.frame.locals.items():
+            if local_val == condition_val:
+                local_idx = idx
+                break
 
         if self.use_interval and isinstance(condition_val, IntervalInt):
             can_be_zero = condition_val.contains(0)
@@ -837,21 +880,82 @@ class AbstractInterpreter(object):
             
             if opcode == "ifeq":
                 if can_be_zero:
+                    # True branch
+                    if local_idx is not None:
+                        true_state.frame.locals[local_idx] = IntervalInt(0, 0)
                     successors.append(true_state)
                 if can_be_nonzero:
+                    # False branch
+                    if local_idx is not None:
+                        if condition_val.low < 0 and condition_val.high > 0:
+                            false_state.frame.locals[local_idx] = IntervalInt(
+                                condition_val.low, condition_val.high, exclude_zero=True
+                            )
+                        elif condition_val.low == 0:
+                            false_state.frame.locals[local_idx] = IntervalInt(1, condition_val.high)
+                        elif condition_val.high == 0:
+                            false_state.frame.locals[local_idx] = IntervalInt(condition_val.low, -1)
+                        else:
+                            false_state.frame.locals[local_idx] = condition_val
                     successors.append(false_state)
             elif opcode == "ifne":
                 if can_be_nonzero:
+                    # True branch
+                    if local_idx is not None:
+                        if condition_val.low < 0 and condition_val.high > 0:
+                            true_state.frame.locals[local_idx] = IntervalInt(
+                                condition_val.low, condition_val.high, exclude_zero=True
+                            )
+                        elif condition_val.low == 0:
+                            true_state.frame.locals[local_idx] = IntervalInt(1, condition_val.high)
+                        elif condition_val.high == 0:
+                            true_state.frame.locals[local_idx] = IntervalInt(condition_val.low, -1)
+                        else:
+                            true_state.frame.locals[local_idx] = condition_val
                     successors.append(true_state)
                 if can_be_zero:
+                    # False branch
+                    if local_idx is not None:
+                        false_state.frame.locals[local_idx] = IntervalInt(0, 0)
                     successors.append(false_state)
             else:
                 successors.append(true_state)
                 successors.append(false_state)
         else:
             # Sign domain
-            successors.append(true_state)
-            successors.append(false_state)
+            if isinstance(condition_val, AbstractInt):
+                can_be_zero = Sign.ZERO in condition_val.state_set
+                can_be_nonzero = (Sign.POSITIVE in condition_val.state_set or 
+                                 Sign.NEGATIVE in condition_val.state_set)
+                
+                if opcode == "ifeq":
+                    if can_be_zero:
+                        # True branch
+                        if local_idx is not None:
+                            true_state.frame.locals[local_idx] = AbstractInt({Sign.ZERO})
+                        successors.append(true_state)
+                    if can_be_nonzero:
+                        if local_idx is not None:
+                            new_signs = condition_val.state_set - {Sign.ZERO}
+                            false_state.frame.locals[local_idx] = AbstractInt(new_signs)
+                        successors.append(false_state)
+                elif opcode == "ifne":
+                    if can_be_nonzero:
+                        # True branch
+                        if local_idx is not None:
+                            new_signs = condition_val.state_set - {Sign.ZERO}
+                            true_state.frame.locals[local_idx] = AbstractInt(new_signs)
+                        successors.append(true_state)
+                    if can_be_zero:
+                        if local_idx is not None:
+                            false_state.frame.locals[local_idx] = AbstractInt({Sign.ZERO})
+                        successors.append(false_state)
+                else:
+                    successors.append(true_state)
+                    successors.append(false_state)
+            else:
+                successors.append(true_state)
+                successors.append(false_state)
         
         return successors
     
@@ -899,7 +1003,9 @@ class AbstractInterpreter(object):
                     
                     if can_be_not_equal:
                         if val1.low < 0 and val1.high > 0:
-                            false_state.frame.locals[local_idx] = val1
+                             false_state.frame.locals[local_idx] = IntervalInt(
+                                val1.low, val1.high, exclude_zero=True
+                            )
                         elif val1.low == 0:
                             false_state.frame.locals[local_idx] = IntervalInt(max(1, val1.low), val1.high)
                         elif val1.high == 0:
@@ -916,7 +1022,9 @@ class AbstractInterpreter(object):
                     if can_be_not_equal:
                         # True branch: val1 != 0
                         if val1.low < 0 and val1.high > 0:
-                            true_state.frame.locals[local_idx] = val1
+                            true_state.frame.locals[local_idx] = IntervalInt(
+                                val1.low, val1.high, exclude_zero=True
+                            )
                         elif val1.low == 0:
                             true_state.frame.locals[local_idx] = IntervalInt(max(1, val1.low), val1.high)
                         elif val1.high == 0:
@@ -952,8 +1060,51 @@ class AbstractInterpreter(object):
                     successors.append(false_state)
         else:
             # Sign domain
-            successors.append(true_state)
-            successors.append(false_state)
+            if isinstance(val1, AbstractInt) and isinstance(val2, AbstractInt):
+                local_idx = None
+                for idx, local_val in state.frame.locals.items():
+                    if local_val == val1:
+                        local_idx = idx
+                        break
+                
+                is_comparing_with_zero = (val2.state_set == {Sign.ZERO})
+                
+                if local_idx is not None and is_comparing_with_zero:
+                    can_be_zero = Sign.ZERO in val1.state_set
+                    can_be_nonzero = (Sign.POSITIVE in val1.state_set or 
+                                     Sign.NEGATIVE in val1.state_set)
+                    
+                    if opcode == "if_icmpeq":
+                        # True: val1 == 0, False: val1 != 0
+                        if can_be_zero:
+                            # True branch
+                            true_state.frame.locals[local_idx] = AbstractInt({Sign.ZERO})
+                            successors.append(true_state)
+                        if can_be_nonzero:
+                            # False branch
+                            new_signs = val1.state_set - {Sign.ZERO}
+                            false_state.frame.locals[local_idx] = AbstractInt(new_signs)
+                            successors.append(false_state)
+                    elif opcode == "if_icmpne":
+                        # True: val1 != 0, False: val1 == 0
+                        if can_be_nonzero:
+                            # True branch
+                            new_signs = val1.state_set - {Sign.ZERO}
+                            true_state.frame.locals[local_idx] = AbstractInt(new_signs)
+                            successors.append(true_state)
+                        if can_be_zero:
+                            # False branch
+                            false_state.frame.locals[local_idx] = AbstractInt({Sign.ZERO})
+                            successors.append(false_state)
+                    else:
+                        successors.append(true_state)
+                        successors.append(false_state)
+                else:
+                    successors.append(true_state)
+                    successors.append(false_state)
+            else:
+                successors.append(true_state)
+                successors.append(false_state)
         
         return successors
     
