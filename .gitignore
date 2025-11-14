@@ -28,3 +28,8 @@ benchmark_suite/src/main/java/jpamb/cases/Calls.java
 benchmark_suite/src/main/java/jpamb/cases/Loops.java
 benchmark_suite/src/main/java/jpamb/cases/Simple.java
 benchmark_suite/src/main/java/jpamb/cases/Tricky.java
+
+#Whitelist
+benchmark_suite/src/main/java/jpamb/cases/*
+!benchmark_suite/src/main/java/jpamb/cases/String.java
+#add the path to the new test case file here
