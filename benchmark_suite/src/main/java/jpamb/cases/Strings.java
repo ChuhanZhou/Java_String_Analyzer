@@ -284,7 +284,7 @@ public class Strings {
     // ============================================================================
 
     @Case("(true) -> ok")
-    @Case("(false) -> assertion error")
+    @Case("(false) -> ok")
     public static void conditionalConcat(boolean flag) {
       String s1 = "hello";
       String s2;
@@ -339,7 +339,7 @@ public class Strings {
     }
 
     @Case("(5) -> ok")
-    @Case("(4) -> assertion error")
+    @Case("(4) -> ok")
     @Tag({ LOOP })
     public static void buildStringWithLength(int targetLen) {
       assert targetLen > 0;
@@ -439,7 +439,7 @@ public class Strings {
     //}
 
     @Case("(5) -> ok")
-    @Case("(4) -> assertion error")
+    @Case("(4) -> ok")
     public static void repeatWithLength(int len) {
       String base = "x";
       String result = base;
@@ -475,13 +475,15 @@ public class Strings {
     }
 
     @Case("(1, 1) -> ok")
-    @Case("(2, 3) -> assertion error")
+    @Case("(2, 3) -> ok")
     public static void multiParameterStringLength(int len1, int len2) {
       String s1 = "a";
-      for (int i = 1; i < len1; i++) s1 = s1 + "a";
+      for (int i = 1; i < len1; i++)
+        s1 = s1 + "a";
 
       String s2 = "b";
-      for (int i = 1; i < len2; i++) s2 = s2 + "b";
+      for (int i = 1; i < len2; i++)
+        s2 = s2 + "b";
 
       assert s1.length() == len1;
       assert s2.length() == len2;
