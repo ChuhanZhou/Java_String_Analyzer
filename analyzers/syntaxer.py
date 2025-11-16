@@ -6,7 +6,9 @@ import re
 import subprocess
 import os
 
-JAVA_ROOT_PATH = ".."
+# could not find file, so making the root path absolute (derived from __file__)
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+JAVA_ROOT_PATH = str(PROJECT_ROOT)
 JAVA_MAIN_PATH = "benchmark_suite/src/main/java"
 JAVA_CLASS_PATH = "benchmark_suite/target/classes"
 JAVA_CASE_PATH = "jpamb/cases"
