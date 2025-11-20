@@ -13,7 +13,7 @@ syntaxer.JAVA_ROOT_PATH = "."
 if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description="Static Analyzer")
-    parser.add_argument("-case", type=str, default="Simple", help="Name of test case.")
+    parser.add_argument("-case", type=str, default="Strings", help="Name of test case.")
 
     args = parser.parse_args()
 
@@ -30,7 +30,6 @@ if __name__ == '__main__':
         bytecodes = method.bytecodes
 
         print("[Method] {}:".format(method_name))
-
         for case in method.cases:
             case_parameters = case["inputs"]
             true_result = case["result"]
