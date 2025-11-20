@@ -47,7 +47,7 @@ if __name__ == '__main__':
                 result = "PASS"
                 passed_case_num += 1
 
-            print("\t[{}] ({}) => {} | {}".format(result,", ".join(str(param) for param in case_parameters),analysis_result,true_result))
+            print("\t[{}] ({}) => {} | {}".format(result,", ".join(str(param) for param in case_parameters),true_result,analysis_result))
     
     analysis_print = "[Pass Rate]: {:.2f}% ({}/{})".format(passed_case_num/total_case_num*10**2,passed_case_num,total_case_num)
     print("-"*len(analysis_print))

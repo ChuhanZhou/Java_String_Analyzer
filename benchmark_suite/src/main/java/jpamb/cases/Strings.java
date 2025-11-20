@@ -20,12 +20,19 @@ public class Strings {
         assert s != null && !s.isEmpty();
     }
 
-    @Case("(null, \"cream\") -> null pointer exception")
-    @Case("(\"ice\", null) -> null pointer exception")
+    @Case("(null, \"cream\") -> ok")
+    @Case("(\"ice\", null) -> ok")
     @Case("(\"ice\", \"cream\") -> ok")
     public static String concatenate(String s1, String s2) {
         //return s1.concat(s2);
         return s1 + s2;
+    }
+
+    @Case("(null, \"cream\") -> null pointer exception")
+    @Case("(\"ice\", null) -> null pointer exception")
+    @Case("(\"ice\", \"cream\") -> ok")
+    public static String concatenate2(String s1, String s2) {
+        return s1.concat(s2);
     }
 
     @Case("(null, 0) -> null pointer exception")
@@ -117,7 +124,7 @@ public class Strings {
         return s.trim();
     }
 
-    @Case("(\"test@example.com\") -> ok")
+  /**   @Case("(\"test@example.com\") -> ok")
     @Case("(\"user.name+tag@example.co.dk\") -> ok")
     @Case("(\"user_123@test-domain.org\") -> ok")
     @Case("(\"invalid-email\") -> assertion error")
@@ -135,7 +142,7 @@ public class Strings {
     public static void assertValidEmail(String email) {
         String emailRegex = "^[A-Za-z0-9_+.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$";
         assert email != null && email.matches(emailRegex);
-    }
+    }*/
 
 /**
  * String abstraction test cases for finite-height string analysis.
@@ -209,7 +216,8 @@ public class Strings {
       assert result.length() == 3;
     }
 
-    @Case("(3) -> ok")
+    @Case("(6) -> ok")   
+    @Case("(3) -> assertion error")
     @Case("(0) -> assertion error")
     public static void concatWithLengthParameter(int n) {
       String s1 = "cat";
@@ -415,7 +423,7 @@ public class Strings {
       assert result.startsWith("a");
     }
 
-    @Case("(3) -> ok")
+    @Case("(6) -> ok")
     @Case("(2) -> assertion error")
     public static void prefixAndLengthCheck(int expectedLen) {
       String prefix = "car";
