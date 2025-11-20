@@ -385,9 +385,9 @@ def run_bytecodes(bytecodes_tuple, input_values):
                         stack_values.append(stack.pop())
                 
                 # Check for null values in stack
-                #for val in stack_values:
-                 #   if val is None:
-                  #      return "null pointer exception"
+                for val in stack_values:
+                    if val is None:
+                        return "null pointer exception"
                 
                 # Reverse to get correct order
                 stack_values.reverse()
