@@ -20,12 +20,19 @@ public class Strings {
         assert s != null && !s.isEmpty();
     }
 
-    @Case("(null, \"cream\") -> null pointer exception")
-    @Case("(\"ice\", null) -> null pointer exception")
+    @Case("(null, \"cream\") -> ok")
+    @Case("(\"ice\", null) -> ok")
     @Case("(\"ice\", \"cream\") -> ok")
     public static String concatenate(String s1, String s2) {
         //return s1.concat(s2);
         return s1 + s2;
+    }
+
+    @Case("(null, \"cream\") -> null pointer exception")
+    @Case("(\"ice\", null) -> null pointer exception")
+    @Case("(\"ice\", \"cream\") -> ok")
+    public static String concatenate2(String s1, String s2) {
+        return s1.concat(s2);
     }
 
     @Case("(null, 0) -> null pointer exception")
