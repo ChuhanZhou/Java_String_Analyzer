@@ -40,21 +40,22 @@ if __name__ == '__main__':
             case_parameters = case["inputs"]
             true_result = case["result"]
 
-            analysis_result = interpreter.run_test_case(
+            case_result, pc_set = interpreter.run_test_case(
                 method.bytecodes,
                 case_parameters,
                 method.parameters
             )
+            coverage = len(pc_set) / len(method.bytecodes[1])
 
             total_case_num += 1
             result = "FAIL".join(["\033[91m","\033[0m"])
-            if analysis_result == true_result:
+            if case_result == true_result:
                 result = "PASS".join(["\033[92m","\033[0m"])
                 passed_case_num += 1
 
-            print("\t\t[{}] ({}) => {} | {}".format(result,", ".join(str(param) if type(param).__name__ != "str" else "'{}'".format(param) for param in case_parameters),true_result,analysis_result))
+            print("\t\t[{}|{:5.1f}%] ({}) => {} | {}".format(result,coverage*100,", ".join(str(param) if type(param).__name__ != "str" else "'{}'".format(param) for param in case_parameters),true_result,case_result))
 
-        #print("\t[Fuzz Test]:")
+        print("\t[Fuzz Test]:")
 
         # Static Analysis
     

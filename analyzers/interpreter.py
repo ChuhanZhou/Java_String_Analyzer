@@ -18,7 +18,7 @@ class StringBuilderModel:
     def __repr__(self):
         return f"<StringBuilderRef ID={self.reference_id}>"
 
-def run_bytecodes(bytecodes_tuple, input_values):
+def run_bytecodes(bytecodes_tuple, input_values, pc_set=set()):
     modifiers, instructions = bytecodes_tuple
     
 
@@ -28,13 +28,13 @@ def run_bytecodes(bytecodes_tuple, input_values):
     
     stack = []
     pc = 0
- 
 
     for _ in range(50000):
         if pc >= len(instructions):
             return "ok"
-        
-        
+        else:
+            pc_set.add(pc)
+
         instruction = instructions[pc]
         
         offset = instruction[0]
@@ -586,5 +586,7 @@ def run_bytecodes(bytecodes_tuple, input_values):
 
 def run_test_case(bytecodes, case_parameters, method_parameters):
     input_values = case_parameters
-    return run_bytecodes(bytecodes, input_values)
+    pc_set = set()
+    result = run_bytecodes(bytecodes, input_values,pc_set)
+    return result, pc_set
 
