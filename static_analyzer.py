@@ -13,7 +13,7 @@ syntaxer.JAVA_ROOT_PATH = "."
 if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description="Static Analyzer")
-    parser.add_argument("-case", type=str, default="Simple", help="Name of test case.")
+    parser.add_argument("-case", type=str, default="Strings", help="Name of test case.")
 
     args = parser.parse_args()
 
@@ -31,25 +31,34 @@ if __name__ == '__main__':
 
         print("[Method] {}:".format(method_name))
 
+        # Dynamic Analysis
+        print("\t[Case Test]:")
+        if len(method.cases) == 0:
+            print("\t\t{}".format("This function has no cases to test.".join(["\033[93m","\033[0m"])))
+
         for case in method.cases:
             case_parameters = case["inputs"]
             true_result = case["result"]
 
             analysis_result = interpreter.run_test_case(
                 method.bytecodes,
-                case["inputs"],
+                case_parameters,
                 method.parameters
             )
 
             total_case_num += 1
-            result = "FAIL"
+            result = "FAIL".join(["\033[91m","\033[0m"])
             if analysis_result == true_result:
-                result = "PASS"
+                result = "PASS".join(["\033[92m","\033[0m"])
                 passed_case_num += 1
 
-            print("\t[{}] ({}) => {} | {}".format(result,", ".join(case_parameters),analysis_result,true_result))
+            print("\t\t[{}] ({}) => {} | {}".format(result,", ".join(str(param) if type(param).__name__ != "str" else "'{}'".format(param) for param in case_parameters),true_result,analysis_result))
+
+        #print("\t[Fuzz Test]:")
+
+        # Static Analysis
     
-    analysis_print = "[Pass Rate]: {:.2f}% ({}/{})".format(passed_case_num/total_case_num*10**2,passed_case_num,total_case_num)
+    analysis_print = "[Case Pass Rate]: {:.2f}% ({}/{})".format(passed_case_num/total_case_num*10**2,passed_case_num,total_case_num)
     print("-"*len(analysis_print))
     print(analysis_print)
     print("-"*len(analysis_print))
