@@ -6,11 +6,15 @@ __pycache__/
 
 # Virtual Environment
 venv/
+.venv/
 env/
 
 # IDE
 .vscode/
 .idea/
+
+#macOS
+.DS_Store
 
 # keep new cases
 benchmark_suite/*
