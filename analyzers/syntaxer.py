@@ -32,8 +32,8 @@ def case_str_2_value(str_value,value_type):
     match value_type:
         case "int":
             return int(str_value)
-        case "char":
-            return re.findall(r'(?<=\").*?(?=\")', str_value)[0]
+        case "chr":
+            return re.findall(r'(?<=\').*?(?=\')', str_value)[0]
         case "str":
             return str_value.encode().decode('unicode_escape')[1:-1]
         case "bool":
@@ -146,6 +146,33 @@ class JavaMethod(object):
                     bytecode_values |= values
         return bytecode_values
 
+def str_param_parser(str_param,sub_list = None):
+    if sub_list is not None:
+        sub_list.reverse()
+
+    pure_str_lists = re.findall(r'(?<=\[)[^\[\]]*(?=\])', str_param)
+
+    if pure_str_lists:
+        pure_lists = []
+        for pure_str in pure_str_lists:
+            pure_str = re.findall(r'(?<=[A-Za-z]:).*',pure_str)[0]
+            pure_lists.append(str_param_parser(pure_str))
+
+        next = re.sub(r'\[[^\[\]]*\]', "#LIST#", str_param)
+        return str_param_parser(next,pure_lists)
+    else:
+        str_param_list = []
+        for str_v in str_param.split(","):
+            str_v = str_v.strip()
+            if str_v == '':
+                break
+            elif str_v == "#LIST#":
+                str_param_list.append(sub_list.pop())
+            else:
+                str_param_list.append(str_v)
+        return str_param_list
+
+
 def analyze_ast(tree):
     method_list = []
 
@@ -177,14 +204,7 @@ def analyze_ast(tree):
                                 case = {}
                                 case_info = re.findall(r'(?<=").+?(?=(?<!\\)")', case_info)[0]
 
-                                case["inputs"] = []
-                                case_inputs = re.findall(r'(?<=\().*?(?=\))', case_info)[0].split(',')
-                                for case_input in case_inputs:
-                                    case_input = case_input.strip()
-                                    if case_input == '':
-                                        break
-                                    case["inputs"].append(case_input)
-
+                                case["inputs"] = str_param_parser(re.findall(r'(?<=\().*?(?=\))', case_info)[0])
                                 case["result"] = re.findall(r'(?<=\s->\s).+', case_info)[0]
                                 method.cases.append(case)
                         case "block":
@@ -204,13 +224,14 @@ def analyze_ast(tree):
 
                 #Convert cases input data type from str to real value
                 for case in method.cases:
-                    for v_i,str_v in enumerate(case["inputs"]):
+                    for v_i in range(len(case["inputs"])):
                         v_type = method.parameters[v_i]["type"]
 
                         if v_type[1]:
-                            raise NotImplementedError("Don't know how to handle: {}[]".format(v_type[0]))
+                            for l_i,str_v in enumerate(case["inputs"][v_i]):
+                                case["inputs"][v_i][l_i] = case_str_2_value(str_v,v_type[0])
                         else:
-                            case["inputs"][v_i] = case_str_2_value(str_v,v_type[0])
+                            case["inputs"][v_i] = case_str_2_value(case["inputs"][v_i],v_type[0])
 
                 method_list.append(method)
 
@@ -282,12 +303,28 @@ def get_bootstrap_arguments(name):
     else:
         return None
 
+def fit_env_ver(name):
+    try:
+        result = subprocess.run(["javap", "-v", "-classpath", "/".join([JAVA_ROOT_PATH, JAVA_CLASS_PATH]), "jpamb.cases.{}".format(name)],capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as e: # use low version to decompile
+        return False
+    major_ver = int(re.findall(r'(?<=major version: )\d*?(?=\n)',result.stdout)[0])
+    java_ver = major_ver - 44
+    if java_ver <= 8:
+        java_ver = "1.{}".format(java_ver)
+        match_re = r'(?<=javac )\d+?\.\d+?(?=\.)'
+    else:
+        java_ver = str(java_ver)
+        match_re = r'(?<=javac )\d+?(?=\.)'
+    env_ver = re.findall(match_re,subprocess.run(["javac", "-version"],capture_output=True, text=True).stdout)[0]
+    return env_ver == java_ver
+
 def decompile_bytecode(name):
     method_bytecodes = {}
 
     java_path = "/".join([JAVA_ROOT_PATH, JAVA_MAIN_PATH, JAVA_CASE_PATH, "{}.java".format(name)])
     class_path = "/".join([JAVA_ROOT_PATH, JAVA_CLASS_PATH, JAVA_CASE_PATH, "{}.class".format(name)])
-    if not os.path.exists(class_path) or os.path.getmtime(java_path) > os.path.getmtime(class_path):
+    if not os.path.exists(class_path) or os.path.getmtime(java_path) > os.path.getmtime(class_path) or not fit_env_ver(name):
         compile(name)
 
     result = subprocess.run(["javap", "-c", "-classpath", "/".join([JAVA_ROOT_PATH, JAVA_CLASS_PATH]), "jpamb.cases.{}".format(name)],capture_output=True, text=True, check=True)
@@ -306,7 +343,6 @@ def decompile_bytecode(name):
 
         method_name = re.findall(r'.+?(?=\()', method_info)[0].split(" ")[-1]
         bytecodes = []
-        #values = []
         for line in codes.split("\n"):
             bytecode_info = decode_bytecode(line,bootstrap_args)
             if bytecode_info is None:
@@ -326,22 +362,22 @@ def decode_bytecode(code_line,bootstrap_args):
 
     opcode_info = []
     constant_info = None
-    type_info = opcode_info
+    info_list = opcode_info
     for info in code_line.split(": ")[1].strip().split(" "):
         if info == "":
             continue
         elif info == "//":
             constant_info = []
-            type_info = constant_info
+            info_list = constant_info
             continue
 
         if constant_info is None:
             if len(info.split("_")) == 2 and info.split("_")[0] in SUB_OPCODE_LIST:
-                type_info += info.split("_")
+                info_list += info.split("_")
             else:
-                type_info.append(info.split(",")[0])
+                info_list.append(info.split(",")[0])
         else:
-            type_info.append(info)
+            info_list.append(info)
 
     decode_info = [index,*opcode_info]
     if len(opcode_info)>3:
