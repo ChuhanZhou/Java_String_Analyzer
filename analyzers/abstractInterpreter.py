@@ -1,358 +1,8 @@
-from enum import Enum
 from typing import Dict, List, Set, Tuple, Optional, Union
-
-class Sign(Enum):
-    POSITIVE = "+"
-    NEGATIVE = "-"
-    ZERO = "0"
-    
-    def __neg__(self):
-        match self:
-            case Sign.POSITIVE:
-                return Sign.NEGATIVE
-            case Sign.NEGATIVE:
-                return Sign.POSITIVE
-            case Sign.ZERO:
-                return Sign.ZERO
-    
-    def __add__(self, other):
-        signs = {self, other}
-        if len(signs) == 1:
-            return signs
-        elif Sign.ZERO in signs:
-            signs.remove(Sign.ZERO)
-            return signs
-        else:
-            return {Sign.NEGATIVE, Sign.ZERO, Sign.POSITIVE}
-    
-    def __sub__(self, other):
-        if self == Sign.ZERO:
-            return {-other}
-        elif other == Sign.ZERO:
-            return {self}
-        elif self == other:
-            return {Sign.NEGATIVE, Sign.ZERO, Sign.POSITIVE}
-        else:
-            return {self}
-    
-    def __mul__(self, other):
-        signs = {self, other}
-        if Sign.ZERO in signs:
-            return {Sign.ZERO}
-        elif len(signs) == 1:
-            return {Sign.POSITIVE}
-        else:
-            return {Sign.NEGATIVE}
-    
-    def __truediv__(self, other):
-        if other == Sign.ZERO:
-            raise ZeroDivisionError("Abstract division by zero")
-        elif self == Sign.ZERO:
-            return {Sign.ZERO}
-        elif self == other:
-            return {Sign.POSITIVE}
-        else:
-            return {Sign.NEGATIVE}
-
-
-class AbstractInt(object):
-    def __init__(self, value=None):
-        self.state_set = set()
-        if value is not None:
-            if isinstance(value, int):
-                if value < 0:
-                    self.state_set.add(Sign.NEGATIVE)
-                elif value > 0:
-                    self.state_set.add(Sign.POSITIVE)
-                else:
-                    self.state_set.add(Sign.ZERO)
-            elif isinstance(value, set):
-                self.state_set = value.copy()
-    
-    def top():
-        result = AbstractInt()
-        result.state_set = {Sign.POSITIVE, Sign.NEGATIVE, Sign.ZERO}
-        return result
-    
-    def bottom():
-        return AbstractInt()
-    
-    def is_bottom(self):
-        return len(self.state_set) == 0
-    
-    def is_top(self):
-        return self.state_set == {Sign.POSITIVE, Sign.NEGATIVE, Sign.ZERO}
-    
-    def join(self, other):
-        result = AbstractInt()
-        result.state_set = self.state_set | other.state_set
-        return result
-    
-    def meet(self, other):
-        result = AbstractInt()
-        result.state_set = self.state_set & other.state_set
-        return result
-    
-    def __add__(self, other):
-        result = AbstractInt()
-        for s_state in self.state_set:
-            for o_state in other.state_set:
-                result.state_set.update(s_state + o_state)
-        return result
-    
-    def __sub__(self, other):
-        result = AbstractInt()
-        for s_state in self.state_set:
-            for o_state in other.state_set:
-                result.state_set.update(s_state - o_state)
-        return result
-    
-    def __mul__(self, other):
-        result = AbstractInt()
-        for s_state in self.state_set:
-            for o_state in other.state_set:
-                result.state_set.update(s_state * o_state)
-        return result
-    
-    def __truediv__(self, other):
-        if Sign.ZERO in other.state_set:
-            raise ZeroDivisionError("Abstract division by zero")
-        result = AbstractInt()
-        for s_state in self.state_set:
-            for o_state in other.state_set:
-                result.state_set.update(s_state / o_state)
-        return result
-    
-    def __neg__(self):
-        result = AbstractInt()
-        for s_state in self.state_set:
-            result.state_set.add(-s_state)
-        return result
-    
-    def __lt__(self, other):
-        return self.state_set < other.state_set
-
-    def __gt__(self, other):
-        return self.state_set > other.state_set
-
-    def __eq__(self, other):
-        return self.state_set == other.state_set
-
-    def __ne__(self, other):
-        return self.state_set != other.state_set
-
-    def __le__(self, other):
-        return self.state_set <= other.state_set
-
-    def __ge__(self, other):
-        return self.state_set >= other.state_set
-    
-    def __hash__(self):
-        return hash(frozenset(self.state_set))
-    
-    def __copy__(self):
-        copy = AbstractInt()
-        copy.state_set = self.state_set.copy()
-        return copy
-    
-    def __str__(self):
-        if self.is_bottom():
-            return "EMPTY"  
-        return "{" + ",".join(sorted([s.value for s in self.state_set])) + "}"
-    
-    def __repr__(self):
-        return self.__str__()
-
-
-
-class IntervalInt(object):
-    def __init__(self, low, high, exclude_zero=False):
-        # Validate interval
-        if low == float('inf') or high == float('-inf'):
-            self.low = float('inf')
-            self.high = float('-inf')
-            self.exclude_zero = False
-        elif low > high:
-            self.low = float('inf')
-            self.high = float('-inf')
-            self.exclude_zero = False
-        else:
-            self.low = low
-            self.high = high
-            self.exclude_zero = exclude_zero if (low <= 0 <= high) else False
-    
-    def from_concrete(value):
-        return IntervalInt(value, value, exclude_zero=False)
-    
-    def top():
-        return IntervalInt(float('-inf'), float('inf'), exclude_zero=False)
-    
-    def bottom():
-        return IntervalInt(float('inf'), float('-inf'), exclude_zero=False)
-    
-    def is_bottom(self):
-        return self.low == float('inf') and self.high == float('-inf')
-    
-    def is_top(self):
-        return self.low == float('-inf') and self.high == float('inf')
-    
-    def contains(self, value):
-        if self.is_bottom():
-            return False
-        in_range = self.low <= value <= self.high
-        if in_range and value == 0 and self.exclude_zero:
-            return False
-        return in_range
-    
-    def definitely_not_zero(self):
-        if self.low > 0 or self.high < 0:
-            return True
-        if self.exclude_zero and self.low <= 0 <= self.high:
-            return True
-        return False
-    
-    def join(self, other):
-        if self.is_bottom():
-            return other
-        if other.is_bottom():
-            return self
-        
-        new_low = min(self.low, other.low)
-        new_high = max(self.high, other.high)
-        new_exclude_zero = self.exclude_zero and other.exclude_zero
-        return IntervalInt(new_low, new_high, exclude_zero=new_exclude_zero)
-    
-    def meet(self, other):
-        if self.is_bottom() or other.is_bottom():
-            return IntervalInt.bottom()
-        
-        new_low = max(self.low, other.low)
-        new_high = min(self.high, other.high)
-        
-        if new_low > new_high:
-            return IntervalInt.bottom()
-        
-        new_exclude_zero = self.exclude_zero or other.exclude_zero
-        return IntervalInt(new_low, new_high, exclude_zero=new_exclude_zero)
-    
-    def widen(self, other, constants):
-        if self.is_bottom():
-            return other
-        if other.is_bottom():
-            return self
-        
-        sorted_constants = sorted(constants | {int(self.low), int(self.high)} 
-                                 if not (isinstance(self.low, float) or isinstance(self.high, float))
-                                 else constants)
-        
-        if other.low < self.low:
-            # Lower bound decreased, jump to previous constant or -inf
-            new_low = float('-inf')
-            for c in reversed(sorted_constants):
-                if c <= other.low:
-                    new_low = c
-                    break
-        else:
-            new_low = self.low
-        
-        if other.high > self.high:
-            # Upper bound increased, jump to next constant or +inf
-            new_high = float('inf')
-            for c in sorted_constants:
-                if c >= other.high:
-                    new_high = c
-                    break
-        else:
-            new_high = self.high
-        
-        return IntervalInt(new_low, new_high, exclude_zero=False)
-    
-    def __add__(self, other):
-        if self.is_bottom() or other.is_bottom():
-            return IntervalInt.bottom()
-        return IntervalInt(self.low + other.low, self.high + other.high)
-    
-    def __sub__(self, other):
-        if self.is_bottom() or other.is_bottom():
-            return IntervalInt.bottom()
-        return IntervalInt(self.low - other.high, self.high - other.low)
-    
-    def __mul__(self, other):
-        if self.is_bottom() or other.is_bottom():
-            return IntervalInt.bottom()
-        
-        products = [
-            self.low * other.low,
-            self.low * other.high,
-            self.high * other.low,
-            self.high * other.high
-        ]
-        return IntervalInt(min(products), max(products))
-    
-    def __truediv__(self, other):
-        if self.is_bottom() or other.is_bottom():
-            return IntervalInt.bottom()
-        
-        if other.low <= 0 <= other.high and not other.exclude_zero:
-            raise ZeroDivisionError("Abstract division by zero")
-        
-        if other.exclude_zero and other.low <= 0 <= other.high:
-            return IntervalInt.top()
-        
-        quotients = [
-            self.low / other.low,
-            self.low / other.high,
-            self.high / other.low,
-            self.high / other.high
-        ]
-        return IntervalInt(int(min(quotients)), int(max(quotients)))
-    
-    def __neg__(self):
-        if self.is_bottom():
-            return IntervalInt.bottom()
-        return IntervalInt(-self.high, -self.low)
-    
-    def __le__(self, other):
-        if self.is_bottom():
-            return True
-        if other.is_bottom():
-            return False
-        return other.low <= self.low and self.high <= other.high
-    
-    def __lt__(self, other):
-        return self <= other and self != other
-    
-    def __ge__(self, other):
-        return other <= self
-    
-    def __gt__(self, other):
-        return other < self
-    
-    def __eq__(self, other):
-        if not isinstance(other, IntervalInt):
-            return False
-        return (self.low == other.low and self.high == other.high and 
-                self.exclude_zero == other.exclude_zero)
-    
-    def __hash__(self):
-        return hash((self.low, self.high, self.exclude_zero))
-    
-    def __str__(self):
-        if self.is_bottom():
-            return "EMPTY"
-        
-        low_str = "-inf" if self.low == float('-inf') else str(int(self.low) if isinstance(self.low, float) else self.low)
-        high_str = "+inf" if self.high == float('inf') else str(int(self.high) if isinstance(self.high, float) else self.high)
-        
-        result = f"[{low_str},{high_str}]"
-        if self.exclude_zero:
-            result += "\\{0}"
-        return result
-    
-    def __repr__(self):
-        return self.__str__()
-
-
+from collections import Counter
+from .sign import Sign, AbstractInt
+from .intervalInt import IntervalInt
+from .finite_height_string import StringAbstraction
 
 class AbstractFrame(object):  
     def __init__(self, locals, stack):
@@ -514,6 +164,8 @@ class AbstractInterpreter(object):
         self.state_set = StateSet()
         self.final_states = set()
         self.errors = []
+
+        self.path_results = []
         
         self.iteration_count = 0
         self.join_count = 0
@@ -659,6 +311,7 @@ class AbstractInterpreter(object):
         elif opcode == "invokespecial":
             return self._handle_invokespecial(state, instruction)
         elif opcode in ["ireturn", "return"]:
+            self.path_results.append("ok")
             return []
         else:
             new_state = state.copy()
@@ -779,6 +432,7 @@ class AbstractInterpreter(object):
         
         if definitely_zero:
             self.errors.append(f"PC {state.pc}: Definite division by zero")
+            self.path_results.append("divide by zero")
             return []
         
         if definitely_not_zero:
@@ -951,7 +605,6 @@ class AbstractInterpreter(object):
                     successors.append(true_state)
                     successors.append(false_state)
             else:
-                # 无法细化
                 successors.append(true_state)
                 successors.append(false_state)
         
@@ -1150,8 +803,10 @@ class AbstractInterpreter(object):
         
         if is_assertion_error:
             self.errors.append(f"PC {state.pc}: Assertion error")
+            self.path_results.append("assertion error")
         else:
             self.errors.append(f"PC {state.pc}: Exception thrown")
+            self.path_results.append("error")
         
         return []
     
@@ -1190,8 +845,11 @@ class AbstractInterpreter(object):
                 priority = {"assertion error": 1, "divide by zero": 2, "error": 3}
                 sorted_errors = sorted(error_types, key=lambda x: priority.get(x, 99))
                 return " and ".join(sorted_errors)
+            
         else:
             return "ok"
+        
+        
     
     def print_analysis_result(self):
         # Print basic stats inline
@@ -1200,12 +858,69 @@ class AbstractInterpreter(object):
         print(f"  Iterations: {self.iteration_count}, Joins: {self.join_count}, Widenings: {self.widen_count}")
         
         # Print errors or success
+        if self.path_results:
+            path_counter = Counter(self.path_results)
+            print(f"  Total paths: {len(self.path_results)}")
+            for result, count in sorted(path_counter.items()):
+                percentage = (count / len(self.path_results)) * 100
+                print(f"    - {result}: {count} ({percentage:.1f}%)") 
+
         if self.errors:
             print(f"  ⚠ Found {len(self.errors)} potential error(s):")
             for err in self.errors:
                 print(f"    • {err}")
         else:
             print(f"  ✓ No errors detected")
+
+    def get_error_probabilities(self):
+        error_counts = {
+            "ok": 0,
+            "divide by zero": 0,
+            "assertion error": 0,
+            "out of bounds": 0,
+            "null pointer": 0,
+            "*": 0
+        }
+
+        for result in self.path_results:
+            if result in error_counts:
+                error_counts[result] += 1
+            elif "assertion" in result.lower():
+                error_counts["assertion error"] += 1
+            elif "divide" in result.lower():
+                error_counts["divide by zero"] += 1
+            else:
+                error_counts["*"] += 1
+
+        if len(self.path_results) == 0:
+            if len(self.errors) == 0:
+                error_counts["ok"] = 1
+            else:
+                for err in self.errors:
+                    err_lower = err.lower()
+                    if "assertion" in err_lower:
+                        error_counts["assertion error"] += 1
+                    elif "division by zero" in err_lower or "divide by zero" in err_lower:
+                        error_counts["divide by zero"] += 1
+
+        total = sum(error_counts.values())
+
+        probabilities = {}
+        if total > 0:
+            for error_type, count in error_counts.items():
+                percentage = int((count / total) * 100)
+                probabilities[error_type] = f"{percentage}%"
+        else:
+            probabilities = {
+                "ok": "100%",
+                "divide by zero": "0%",
+                "assertion error": "0%",
+                "out of bounds": "0%",
+                "null pointer": "0%",
+                "*": "0%"
+            }
+
+        return probabilities
         
 
 
