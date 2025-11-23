@@ -184,3 +184,62 @@ class IntervalInt(object):
     
     def __repr__(self):
         return self.__str__()
+    
+if __name__ == '__main__':
+    print("Start prove abstract operation correctly (IntervalInt)")
+    test_values = [-2, -1, 0, 1, 2]
+
+    total_case_num = 0
+    true_case_num = 0
+    for v1 in test_values:
+        for v2 in test_values:
+            a1 = IntervalInt.from_concrete(v1)
+            a2 = IntervalInt.from_concrete(v2)
+
+            r_l = IntervalInt.from_concrete(v1 + v2)
+            r_r = a1 + a2
+            r = r_l <= r_r  
+            total_case_num += 1
+            true_case_num += int(r)
+            print("[{}] α({} + {}) <= α({}) + α({}): {} <= {}".format(r, v1, v2, v1, v2, r_l, r_r))
+
+
+            r_l = IntervalInt.from_concrete(v1 - v2)
+            # α(v1) - α(v2)
+            r_r = a1 - a2
+            r = r_l <= r_r
+            total_case_num += 1
+            true_case_num += int(r)
+            print("[{}] α({} - {}) <= α({}) - α({}): {} <= {}".format(r, v1, v2, v1, v2, r_l, r_r))
+
+
+            r_l = IntervalInt.from_concrete(v1 * v2)
+            # α(v1) * α(v2)
+            r_r = a1 * a2
+            r = r_l <= r_r
+            total_case_num += 1
+            true_case_num += int(r)
+            print("[{}] α({} * {}) <= α({}) * α({}): {} <= {}".format(r, v1, v2, v1, v2, r_l, r_r))
+
+
+            try:
+                r_r = a1 / a2
+            except ZeroDivisionError as e:
+                r = (v2 == 0)
+                total_case_num += 1
+                true_case_num += int(r)
+                print("[{}] α({}) / α({}): {} (Correctly caught concrete 0)".format(r, v1, v2, e))
+            else:
+                concrete_div_result = int(v1 / v2)
+                
+                # α(v1 / v2)
+                r_l = IntervalInt.from_concrete(concrete_div_result)
+                r = r_l <= r_r
+                total_case_num += 1
+                true_case_num += int(r)
+                print("[{}] α({} / {}) <= α({}) / α({}): {} <= {}".format(r, v1, v2, v1, v2, r_l, r_r))
+
+    prove_print = "[Accuracy]: {:.2f}% ({}/{})".format(true_case_num / total_case_num * 100.0, true_case_num, total_case_num)
+    print("-" * len(prove_print))
+    print(prove_print)
+    print("-" * len(prove_print))

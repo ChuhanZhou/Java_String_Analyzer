@@ -160,3 +160,54 @@ class AbstractInt(object):
     
     def __repr__(self):
         return self.__str__()
+    
+if __name__ == '__main__':
+    print("Start prove abstract operation correctly")
+    test_values = [-2,-1,0,1,2]
+
+    total_case_num = 0
+    true_case_num = 0
+    for v1 in test_values:
+        for v2 in test_values:
+            a1 = AbstractInt(v1)
+            a2 = AbstractInt(v2)
+
+            r_l = AbstractInt(v1 + v2)
+            r_r = a1 + a2
+            r = r_l <= r_r
+            total_case_num+=1
+            true_case_num+=int(r)
+            print("[{}] α({} + {}) <= α({}) + α({}): {} <= {}".format(r, v1, v2, v1, v2, r_l, r_r))
+
+            r_l = AbstractInt(v1 - v2)
+            r_r = a1 - a2
+            r = r_l <= r_r
+            total_case_num += 1
+            true_case_num += int(r)
+            print("[{}] α({} - {}) <= α({}) - α({}): {} <= {}".format(r, v1, v2, v1, v2, r_l, r_r))
+
+            r_l = AbstractInt(v1 * v2)
+            r_r = a1 * a2
+            r = r_l <= r_r
+            total_case_num += 1
+            true_case_num += int(r)
+            print("[{}] α({} * {}) <= α({}) * α({}): {} <= {}".format(r, v1, v2, v1, v2, r_l, r_r))
+
+            try:
+                r_r = a1 / a2
+            except ZeroDivisionError as e:
+                r = v2 == 0
+                total_case_num += 1
+                true_case_num += int(r)
+                print("[{}] α({}) / α({}): {}".format(r, v1, v2, e))
+            else:
+                r_l = AbstractInt(v1 / v2)
+                r = r_l <= r_r
+                total_case_num += 1
+                true_case_num += int(r)
+                print("[{}] α({} / {}) <= α({}) / α({}): {} <= {}".format(r, v1, v2, v1, v2, r_l, r_r))
+
+    prove_print = "[Accuracy]: {:.2f}% ({}/{})".format(true_case_num / total_case_num * 10 ** 2, true_case_num,total_case_num)
+    print("-"*len(prove_print))
+    print(prove_print)
+    print("-"*len(prove_print))
