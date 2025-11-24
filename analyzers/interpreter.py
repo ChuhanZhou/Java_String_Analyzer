@@ -312,6 +312,15 @@ def run_bytecodes(bytecodes_tuple, input_values, pc_set=set()):
                 if not isinstance(string_obj, str):
                     return "type error"
                 stack.append(1 if string_obj.startswith(prefix) else 0)
+
+            elif "endswith" in method_desc.lower():
+                suffix = stack.pop()
+                string_obj = stack.pop()
+                if string_obj is None or suffix is None:
+                    return "null pointer exception"
+                if not isinstance(string_obj, str):
+                    return "type error"
+                stack.append(1 if string_obj.endswith(suffix) else 0)
             
             # String.matches(String) - for regex
             elif "matches" in method_desc.lower():
@@ -328,7 +337,7 @@ def run_bytecodes(bytecodes_tuple, input_values, pc_set=set()):
                     stack.append(0)
             
             else:
-                # Unknown method - just pop the object and any args
+                #just pop the object and any args
                 if stack:
                     stack.pop()
             
@@ -362,8 +371,7 @@ def run_bytecodes(bytecodes_tuple, input_values, pc_set=set()):
                     result = sb.toString()
                     stack.append(result)
             else:
-                # Unknown static method - do nothing
-                pass
+                raise NotImplementedError(f"Static method not implemented: {method_desc}")
             
             pc += 1
         
