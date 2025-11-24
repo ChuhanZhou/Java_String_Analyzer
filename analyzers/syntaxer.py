@@ -88,14 +88,16 @@ class JavaMethod(object):
 
             type_values[value_type].add(value)
 
+            if value_type == "chr":
+                type_values["str"].add(value)
+
             if value_type == "str":
                 if len(value) == 1:
                     if "chr" not in type_values:
                         type_values["chr"] = set()
 
                     type_values["chr"].add(value)
-                else:
-                    type_values["int"].add(len(value))
+                type_values["int"].add(len(value))
 
         parameter_values = {}
         array_parameter_values = None
@@ -107,7 +109,7 @@ class JavaMethod(object):
             else:
                 parameter_values[parameter["name"]] = set()
 
-            if parameter["type"][1] and array_parameter_values is None: #array
+            if (parameter["type"][1] or parameter["type"][0] == "chr") and array_parameter_values is None: #array
                 array_parameter_values = type_values["int"]
 
         return parameter_values, array_parameter_values
@@ -294,7 +296,7 @@ def get_bootstrap_arguments(name):
         bootstrap_argument_info = bootstrap_argument_info[0]
         bootstrap_args = {}
 
-        for i,arg_info in re.findall(r'^\s*(\d+):.*?Method arguments:\s*#\d+\s(\S+)', bootstrap_argument_info, re.M | re.S):
+        for i,arg_info in re.findall(r'^\s*(\d+):.*?Method arguments:\s*#\d+\s([^\n]+)', bootstrap_argument_info, re.M | re.S):
             args = []
             for v in arg_info.split('\\u0001'):
                 if v != "":
@@ -366,7 +368,7 @@ def decode_bytecode(code_line,bootstrap_args):
     constant_info = None
     info_list = opcode_info
     for info in code_line.split(": ")[1].strip().split(" "):
-        if info == "":
+        if info == "" and constant_info is None:
             continue
         elif info == "//":
             constant_info = []
@@ -394,7 +396,7 @@ def decode_bytecode(code_line,bootstrap_args):
             constant_type = constant_type.lower()
 
         if len(constant_info)>2: #reconstruct constant info
-            constant_value = [constant_info[0]," ".join(constant_info[1:])]
+            constant_value = " ".join(constant_info[1:])
         elif len(constant_info) == 1:
             constant_value = ""
         else:
