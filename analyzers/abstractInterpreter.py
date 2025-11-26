@@ -3,6 +3,7 @@ from collections import Counter
 from .sign import Sign, AbstractInt
 from .intervalInt import IntervalInt
 from .finite_height_string import StringAbstraction
+import re
 
 class AbstractFrame(object):  
     def __init__(self, locals, stack):
@@ -235,14 +236,20 @@ class AbstractInterpreter(object):
             return AbstractInt.top()
     
     def create_string_top(self):
-        return StringAbstraction.top()
+        if self.use_string:
+            return StringAbstraction.top()
+        else:
+            return self.create_top()
     
     def analyze(self, num_parameters: int, param_types: list[str] = None, max_iterations=1000):
         initial_locals = {}
         if param_types:
             for i, param_type in enumerate(param_types):
-                if param_type in ['String', 'str', 'string']:
-                    initial_locals[i] = self.create_string_top()
+                if param_type in ['String', 'str', 'string', 'java.lang.String']:
+                    if self.use_string:
+                        initial_locals[i] = StringAbstraction.top()
+                    else:
+                        initial_locals[i] = self.create_top()
                 elif param_type in ['int', 'integer', 'Integer', 'java.lang.Integer']:
                     initial_locals[i] = self.create_top()
                 elif param_type in ['boolean', 'Boolean', 'java.lang.Boolean']:
@@ -329,6 +336,8 @@ class AbstractInterpreter(object):
             return self._handle_ineg(state, instruction)
         elif opcode in ["ifeq", "ifne", "iflt", "ifge", "ifgt", "ifle"]:
             return self._handle_ifz(state, instruction)
+        elif opcode in ["ifnull", "ifnonnull"]:
+            return self._handle_ifnull(state, instruction)
         elif opcode in ["if_icmpeq", "if_icmpne", "if_icmplt", 
                        "if_icmpge", "if_icmpgt", "if_icmple"]:
             return self._handle_if_icmp(state, instruction)
@@ -344,6 +353,8 @@ class AbstractInterpreter(object):
             return self._handle_invokevirtual(state, instruction)
         elif opcode == "invokedynamic":
             return self._handle_invokedynamic(state, instruction)
+        elif opcode == "invokestatic":
+            return self._handle_invokestatic(state, instruction)
         elif opcode == "invokespecial":
             return self._handle_invokespecial(state, instruction)
         elif opcode in ["ireturn", "return"]:
@@ -379,7 +390,8 @@ class AbstractInterpreter(object):
             if const_type == "int":
                 new_state.frame.stack.append(self.create_abstract_value(int(const_value)))
             elif const_type in ["string", "str", "String"]:
-                new_state.frame.stack.append(StringAbstraction.from_string(str(const_value)))
+                str_val = StringAbstraction.from_string(str(const_value))
+                new_state.frame.stack.append(str_val)
             else:
                 new_state.frame.stack.append(self.create_top())
         else:
@@ -412,7 +424,7 @@ class AbstractInterpreter(object):
         if idx in new_state.frame.locals:
             new_state.frame.stack.append(new_state.frame.locals[idx])
         else:
-            new_state.frame.stack.append(self.create_string_top())
+            new_state.frame.stack.append(StringAbstraction.top())
         new_state.pc = self._get_next_pc(instr[0])
         return [new_state]
 
@@ -427,8 +439,13 @@ class AbstractInterpreter(object):
     
     def _handle_new(self, state, instr):
         new_state = state.copy()
+
+        class_name = instr[2] if len(instr) > 2 else ""
         
-        new_state.frame.stack.append(self.create_string_top())
+        if class_name in ["java/lang/String", "String","string"]:
+            new_state.frame.stack.append(StringAbstraction.from_string(""))
+        else:
+            new_state.frame.stack.append(StringAbstraction.from_string(""))
         
         new_state.pc = self._get_next_pc(instr[0])
         return [new_state]
@@ -571,14 +588,100 @@ class AbstractInterpreter(object):
     def _target_throws_assertion(self, pc):
         instructions_ahead = [instr for instr in self.bytecodes if instr[0] >= pc]
         
-        for i, instr in enumerate(instructions_ahead[:10]):
-            if instr[1] == "new" and len(instr) > 2:
+        for i, instr in enumerate(instructions_ahead[:25]):
+            opcode = instr[1]
+            
+            if opcode in ["ireturn", "return", "areturn", "lreturn", "freturn", "dreturn", "athrow", "goto"]:
+                return False
+            
+            if opcode == "new" and len(instr) > 2:
                 class_name = str(instr[2])
                 if "AssertionError" in class_name:
-                    for j in range(i+1, min(i+6, len(instructions_ahead))):
-                        if instructions_ahead[j][1] == "athrow":
+                    for j in range(i+1, min(i+40, len(instructions_ahead))):
+                        next_op = instructions_ahead[j][1]
+                        
+                        if next_op == "athrow":
                             return True
-        return False 
+                            
+                        if next_op in ["return", "areturn", "ireturn", "lreturn", "freturn", "dreturn", "goto"]:
+                            return False
+                    return False
+        return False
+    
+    def _handle_ifnull(self, state, instr):
+        if not state.frame.stack:
+            return []
+        
+        target = int(instr[2])
+        opcode = instr[1]
+        
+        ref_val = state.frame.stack[-1]
+        
+        is_definitely_null = False
+        is_definitely_not_null = False
+
+        if isinstance(ref_val, StringAbstraction):
+            is_definitely_null = ref_val.is_definitely_null()
+            is_definitely_not_null = ref_val.is_definitely_not_null()
+
+        # True branch
+        true_state = state.copy()
+        true_state.frame.stack.pop()
+        true_state.pc = target
+
+        # False branch
+        false_state = state.copy()
+        false_state.frame.stack.pop()
+        false_state.pc = self._get_next_pc(instr[0])
+
+        local_idx = None
+        for idx, local_val in state.frame.locals.items():
+            if local_val == ref_val:
+                local_idx = idx
+                break
+            
+        if opcode == "ifnull":
+            # True branch: IS null
+            # False branch: is NOT null
+
+            if is_definitely_not_null:
+                return [false_state]
+            elif is_definitely_null:
+                return [true_state]
+            else:
+                if local_idx is not None and isinstance(ref_val, StringAbstraction):
+                    # True branch
+                    true_state.frame.locals[local_idx] = StringAbstraction.null()
+                    # False branch
+                    false_state.frame.locals[local_idx] = StringAbstraction(
+                        ref_val.prefixes, ref_val.suffixes, 
+                        ref_val.min_len, ref_val.max_len,
+                        can_be_null=False, 
+                        max_prefix_depth=ref_val.max_prefix_depth,
+                        max_length=ref_val.max_length
+                    )
+                return [true_state, false_state]
+
+        elif opcode == "ifnonnull":
+            # True branch: is NOT null
+            # False branch: IS null
+
+            if is_definitely_not_null:
+                return [true_state]
+            elif is_definitely_null:
+                return [false_state]
+            else:
+                if local_idx is not None and isinstance(ref_val, StringAbstraction):
+                    true_state.frame.locals[local_idx] = StringAbstraction(
+                        ref_val.prefixes, ref_val.suffixes,
+                        ref_val.min_len, ref_val.max_len,
+                        can_be_null=False,
+                        max_prefix_depth=ref_val.max_prefix_depth,
+                        max_length=ref_val.max_length
+                    )
+                    # False branch
+                    false_state.frame.locals[local_idx] = StringAbstraction.null()
+                return [true_state, false_state]
     
     def _handle_ifz(self, state, instr):
         if not state.frame.stack:
@@ -600,34 +703,75 @@ class AbstractInterpreter(object):
         false_state.frame.stack.pop()
         false_state.pc = self._get_next_pc(instr[0])
 
-        if self._target_throws_assertion(target):
+        # Check for assertion errors in BOTH branches
+        target_throws = self._target_throws_assertion(target)
+        fallthrough_throws = self._target_throws_assertion(self._get_next_pc(instr[0]))
+        
+        if target_throws or fallthrough_throws:
             if isinstance(condition_val, (IntervalInt, AbstractInt)):
-                condition_might_be_true = False
-                
                 if isinstance(condition_val, IntervalInt):
                     if opcode == "ifeq":
-                        condition_might_be_true = condition_val.contains(0)
+                        can_be_zero = condition_val.contains(0)
+                        can_be_nonzero = condition_val.low < 0 or condition_val.high > 0
+                        if target_throws and can_be_zero:
+                            self.errors.append(f"PC {state.pc}: Possible assertion error")
+                        if fallthrough_throws and can_be_nonzero:
+                            self.errors.append(f"PC {state.pc}: Possible assertion error")
                     elif opcode == "ifne":
-                        condition_might_be_true = (condition_val.low < 0 or condition_val.high > 0)
+                        can_be_nonzero = condition_val.low < 0 or condition_val.high > 0
+                        can_be_zero = condition_val.contains(0)
+                        if target_throws and can_be_nonzero:
+                            self.errors.append(f"PC {state.pc}: Possible assertion error")
+                        if fallthrough_throws and can_be_zero:
+                            self.errors.append(f"PC {state.pc}: Possible assertion error")
                     elif opcode == "iflt":
-                        condition_might_be_true = condition_val.low < 0
+                        can_be_lt = condition_val.low < 0
+                        can_be_ge = condition_val.high >= 0
+                        if target_throws and can_be_lt:
+                            self.errors.append(f"PC {state.pc}: Possible assertion error")
+                        if fallthrough_throws and can_be_ge:
+                            self.errors.append(f"PC {state.pc}: Possible assertion error")
                     elif opcode == "ifle":
-                        condition_might_be_true = condition_val.low <= 0
+                        can_be_le = condition_val.low <= 0
+                        can_be_gt = condition_val.high > 0
+                        if target_throws and can_be_le:
+                            self.errors.append(f"PC {state.pc}: Possible assertion error")
+                        if fallthrough_throws and can_be_gt:
+                            self.errors.append(f"PC {state.pc}: Possible assertion error")
                     elif opcode == "ifgt":
-                        condition_might_be_true = condition_val.high > 0
+                        can_be_gt = condition_val.high > 0
+                        can_be_le = condition_val.low <= 0
+                        if target_throws and can_be_gt:
+                            self.errors.append(f"PC {state.pc}: Possible assertion error")
+                        if fallthrough_throws and can_be_le:
+                            self.errors.append(f"PC {state.pc}: Possible assertion error")
                     elif opcode == "ifge":
-                        condition_might_be_true = condition_val.high >= 0
+                        can_be_ge = condition_val.high >= 0
+                        can_be_lt = condition_val.low < 0
+                        if target_throws and can_be_ge:
+                            self.errors.append(f"PC {state.pc}: Possible assertion error")
+                        if fallthrough_throws and can_be_lt:
+                            self.errors.append(f"PC {state.pc}: Possible assertion error")
                 else:  # AbstractInt
                     if opcode == "ifeq":
-                        condition_might_be_true = Sign.ZERO in condition_val.state_set
+                        can_be_zero = Sign.ZERO in condition_val.state_set
+                        can_be_nonzero = (Sign.POSITIVE in condition_val.state_set or 
+                                         Sign.NEGATIVE in condition_val.state_set)
+                        if target_throws and can_be_zero:
+                            self.errors.append(f"PC {state.pc}: Possible assertion error")
+                        if fallthrough_throws and can_be_nonzero:
+                            self.errors.append(f"PC {state.pc}: Possible assertion error")
                     elif opcode == "ifne":
-                        condition_might_be_true = (Sign.POSITIVE in condition_val.state_set or 
-                                                  Sign.NEGATIVE in condition_val.state_set)
+                        can_be_nonzero = (Sign.POSITIVE in condition_val.state_set or 
+                                         Sign.NEGATIVE in condition_val.state_set)
+                        can_be_zero = Sign.ZERO in condition_val.state_set
+                        if target_throws and can_be_nonzero:
+                            self.errors.append(f"PC {state.pc}: Possible assertion error")
+                        if fallthrough_throws and can_be_zero:
+                            self.errors.append(f"PC {state.pc}: Possible assertion error")
                     else:
-                        condition_might_be_true = True
-                
-                if condition_might_be_true:
-                    self.errors.append(f"PC {state.pc}: Possible assertion error")
+                        # For other conditions, conservatively report error
+                        self.errors.append(f"PC {state.pc}: Possible assertion error")
         
         # local variable
         local_idx = None
@@ -738,6 +882,42 @@ class AbstractInterpreter(object):
         false_state.frame.stack.pop()
         false_state.frame.stack.pop()
         false_state.pc = self._get_next_pc(instr[0])
+
+        # Check for assertion errors
+        target_throws = self._target_throws_assertion(target)
+        fallthrough_throws = self._target_throws_assertion(self._get_next_pc(instr[0]))
+        
+        if target_throws or fallthrough_throws:
+            if isinstance(val1, IntervalInt) and isinstance(val2, IntervalInt):
+                definitely_equal = (val1.low == val1.high and 
+                                    val2.low == val2.high and 
+                                    val1.low == val2.low)
+                if opcode == "if_icmpeq":
+                    # True branch: val1 == val2 → jumps to target
+                    # False branch: val1 != val2 → fall through
+                    if fallthrough_throws and not definitely_equal:
+                        self.errors.append(f"PC {state.pc}: Possible assertion error")
+                    # Rare case: target throws if equal
+                    if target_throws:
+                        can_be_equal = not (val1.high < val2.low or val1.low > val2.high)
+                        if can_be_equal:
+                            self.errors.append(f"PC {state.pc}: Possible assertion error")
+                
+                elif opcode == "if_icmpne":
+                    # True branch: val1 != val2 → jumps to target
+                    # False branch: val1 == val2 → fall through
+                    if fallthrough_throws:
+                        can_be_equal = not (val1.high < val2.low or val1.low > val2.high)
+                        if can_be_equal and not definitely_equal:
+                            self.errors.append(f"PC {state.pc}: Possible assertion error")
+                    if target_throws and not definitely_equal:
+                        self.errors.append(f"PC {state.pc}: Possible assertion error")
+                
+                elif opcode in ["if_icmplt", "if_icmple", "if_icmpgt", "if_icmpge"]:
+                    self.errors.append(f"PC {state.pc}: Possible assertion error")
+            
+            elif isinstance(val1, AbstractInt) and isinstance(val2, AbstractInt):
+                self.errors.append(f"PC {state.pc}: Possible assertion error")
         
         if self.use_interval and isinstance(val1, IntervalInt) and isinstance(val2, IntervalInt):
             local_idx = None
@@ -933,7 +1113,6 @@ class AbstractInterpreter(object):
         elif isinstance(dynamic_info, str):
             if "makeConcat" in dynamic_info or "Concat" in dynamic_info:
                 is_string_concat = True
-                import re
                 match = re.search(r'\((.*?)\)', dynamic_info)
                 if match:
                     params_str = match.group(1)
@@ -959,7 +1138,17 @@ class AbstractInterpreter(object):
             for _ in range(param_count):
                 stack_values.append(new_state.frame.stack.pop())
             stack_values.reverse() 
-            
+
+            for operand in stack_values:
+                if isinstance(operand, StringAbstraction):
+                    if operand.is_definitely_null():
+                        self.errors.append(f"PC {state.pc}: Definite null pointer exception in string concatenation")
+                        self.path_results.append("null pointer exception")
+                        return []
+                    elif operand.is_possibly_null():
+                        self.errors.append(f"PC {state.pc}: Possible null pointer exception in string concatenation")
+       
+
             result = StringAbstraction.from_string("")
             stack_idx = 0
             
@@ -989,7 +1178,10 @@ class AbstractInterpreter(object):
         if isinstance(operand, StringAbstraction):
             return result.concat(operand)
         elif isinstance(operand, (IntervalInt, AbstractInt)):
-            return result.concat(StringAbstraction.top())
+            if isinstance(operand, IntervalInt) and operand.low == operand.high:
+                return result.concat(StringAbstraction.from_string(str(operand.low)))
+            abstract_int_str = StringAbstraction({""}, {""}, 1, 11, can_be_null=False)
+            return result.concat(abstract_int_str)
         else:
             return result.concat(StringAbstraction.top())
     
@@ -1000,14 +1192,22 @@ class AbstractInterpreter(object):
             return [new_state]
         
         method_info = instr[2]
-        method_desc = str(method_info).lower()
+        if isinstance(method_info, tuple) and len(method_info) >= 2:
+            method_desc = str(method_info[1]).lower()
+        else:
+            method_desc = str(method_info).lower()
+
 
         if not state.frame.stack:
             return []
         
         # String.length()
-        elif "length" in method_desc and "string" in method_desc:
+        if "length" in method_desc and "string" in method_desc:
             return self._handle_string_length(state, instr)
+        
+        # String.isEmpty()
+        elif "isempty" in method_desc:
+            return self._handle_string_isempty(state, instr)
         
         # String.charAt()
         elif "charat" in method_desc:
@@ -1021,6 +1221,9 @@ class AbstractInterpreter(object):
         elif "startswith" in method_desc:
             return self._handle_string_startswith(state, instr)
         
+        elif "endswith" in method_desc:
+            return self._handle_string_endswith(state, instr)
+        
         # String.equals
         elif "equals" in method_desc:
             return self._handle_string_equals(state, instr)
@@ -1032,10 +1235,6 @@ class AbstractInterpreter(object):
         # String.contains
         elif "contains" in method_desc:
             return self._handle_string_contains(state, instr)
-        
-        # Integer.parseInt
-        elif "parseint" in method_desc:
-            return self._handle_integer_parseint(state, instr)
         
         # String.compareTo
         elif "compareto" in method_desc:
@@ -1066,13 +1265,30 @@ class AbstractInterpreter(object):
             new_state.pc = self._get_next_pc(instr[0])
             return [new_state]
     
+    def _check_string_null(self, state, string_val, method_name):
+        if not isinstance(string_val, StringAbstraction):
+            return False
+
+        if string_val.is_definitely_null():
+            self.errors.append(f"PC {state.pc}: Definite null pointer exception in {method_name}")
+            self.path_results.append("null pointer exception")
+            return True
+        elif string_val.is_possibly_null():
+            self.errors.append(f"PC {state.pc}: Possible null pointer exception in {method_name}")
+            return False
+
+        return False
+    
     def _handle_string_length(self, state, instr):
         if not state.frame.stack:
             return []
         
         new_state = state.copy()
         string_val = new_state.frame.stack.pop()
-        
+
+        if self._check_string_null(state, string_val, "String.length()"):
+            return []
+    
         if isinstance(string_val, StringAbstraction):
             min_len, max_len = string_val.length()
             if self.use_interval:
@@ -1093,6 +1309,37 @@ class AbstractInterpreter(object):
         new_state.pc = self._get_next_pc(instr[0])
         return [new_state]
     
+
+    def _handle_string_isempty(self, state, instr):
+        """Handle String.isEmpty() - returns true if length == 0"""
+        if not state.frame.stack:
+            return []
+        
+        new_state = state.copy()
+        string_val = new_state.frame.stack.pop()
+        
+        if isinstance(string_val, StringAbstraction):
+            min_len, max_len = string_val.length()
+            
+            if min_len == 0 and max_len == 0:
+                result_val = self.create_abstract_value(1)  # true = 1
+            elif min_len > 0:
+                result_val = self.create_abstract_value(0)  # false = 0
+            else:
+                if self.use_interval:
+                    result_val = IntervalInt(0, 1)  # Could be true or false
+                else:
+                    result_val = AbstractInt({Sign.ZERO, Sign.POSITIVE})
+        else:
+            if self.use_interval:
+                result_val = IntervalInt(0, 1)
+            else:
+                result_val = AbstractInt({Sign.ZERO, Sign.POSITIVE})
+        
+        new_state.frame.stack.append(result_val)
+        new_state.pc = self._get_next_pc(instr[0])
+        return [new_state]
+    
     def _handle_string_charat(self, state, instr):
         if len(state.frame.stack) < 2:
             return []
@@ -1100,6 +1347,10 @@ class AbstractInterpreter(object):
         new_state = state.copy()
         index_val = new_state.frame.stack.pop()
         string_val = new_state.frame.stack.pop()
+
+        if self._check_string_null(state, string_val, "String.charat()"):
+            return []
+    
         
         # Check for potential index out of bounds
         if isinstance(string_val, StringAbstraction) and isinstance(index_val, IntervalInt):
@@ -1130,93 +1381,86 @@ class AbstractInterpreter(object):
         return [new_state]
     
     def _handle_string_substring(self, state, instr):
-        if len(state.frame.stack) < 2:
-            return []
-        
+        if len(state.frame.stack) < 2: return []
         new_state = state.copy()
         
         method_desc = str(instr[2]) if len(instr) > 2 else ""
+        is_two_arg = "(II)" in method_desc or "substring(int,int)" in method_desc.replace(" ", "")
         
-        if "(II)" in method_desc:  # substring(int, int)
-            if len(new_state.frame.stack) < 3:
-                return []
+        if is_two_arg: # substring(int, int)
+            if len(new_state.frame.stack) < 3: return []
             end_val = new_state.frame.stack.pop()
             start_val = new_state.frame.stack.pop()
             string_val = new_state.frame.stack.pop()
+
+            if self._check_string_null(state, string_val, "String.substring()"):
+                return []
             
-            # Check for index errors
+            if self._check_string_null(state, end_val, "String.substringEnd()"):
+                return []
+            
+            if self._check_string_null(state, start_val, "String.substringStart()"):
+                return []
+            
+            # 1.  start < 0
+            if isinstance(start_val, IntervalInt):
+                if start_val.high < 0: # Definite
+                    self.errors.append(f"PC {state.pc}: Definite index out of bounds (negative start)")
+                    self.path_results.append("index out of bounds")
+                    return []
+                if start_val.low < 0: # Possible
+                    self.errors.append(f"PC {state.pc}: Possible index out of bounds (negative start)")
+                    self.path_results.append("index out of bounds")
+
+            min_len, max_len = (0, 100)
             if isinstance(string_val, StringAbstraction):
                 min_len, max_len = string_val.length()
-                
-                if isinstance(start_val, IntervalInt):
-                    if start_val.low < 0:
-                        self.errors.append(f"PC {state.pc}: Possible index out of bounds (negative start)")
-                        self.path_results.append("index out of bounds")
-                        return []
-                    
-                    if start_val.low > max_len:
-                        self.errors.append(f"PC {state.pc}: Possible index out of bounds (start > length)")
-                        self.path_results.append("index out of bounds")
-                        return []
-                
-                if isinstance(end_val, IntervalInt):
-                    if end_val.low < 0:
-                        self.errors.append(f"PC {state.pc}: Possible index out of bounds (negative end)")
-                        self.path_results.append("index out of bounds")
-                        return []
-                    
-                    if end_val.low > max_len:
-                        self.errors.append(f"PC {state.pc}: Possible index out of bounds (end > length)")
-                        self.path_results.append("index out of bounds")
-                        return []
-                
-                # Check if start > end
-                if isinstance(start_val, IntervalInt) and isinstance(end_val, IntervalInt):
-                    if start_val.low > end_val.high:
-                        self.errors.append(f"PC {state.pc}: Possible index range exception (start > end)")
-                        self.path_results.append("index range exception")
-                        return []
+
+            if isinstance(start_val, IntervalInt):
+                if start_val.low > max_len: # Definite
+                    self.errors.append(f"PC {state.pc}: Definite index out of bounds (start > length)")
+                    self.path_results.append("index out of bounds")
+                    return []
+                if start_val.high > max_len: # Possible
+                    self.errors.append(f"PC {state.pc}: Possible index out of bounds (start > length)")
+                    self.path_results.append("index out of bounds")
+
+       
+            if isinstance(end_val, IntervalInt):
+                if end_val.low > max_len: # Definite
+                    self.errors.append(f"PC {state.pc}: Definite index out of bounds (end > length)")
+                    self.path_results.append("index out of bounds")
+                    return []
+                if end_val.high > max_len: # Possible
+                    self.errors.append(f"PC {state.pc}: Possible index out of bounds (end > length)")
+                    self.path_results.append("index out of bounds")
             
+
             if isinstance(start_val, IntervalInt) and isinstance(end_val, IntervalInt):
-                start = start_val.low
-                end = end_val.low
-            else:
-                start, end = 0, None
-                
-            if isinstance(string_val, StringAbstraction):
-                result = string_val.substring(start, end)
+                if start_val.low > end_val.high: # Definite
+                     self.errors.append(f"PC {state.pc}: Definite index range exception (start > end)")
+                     self.path_results.append("index range exception")
+                     return []
+                if start_val.high > end_val.low: # Possible
+                     self.errors.append(f"PC {state.pc}: Possible index range exception (start > end)")
+                     self.path_results.append("index range exception")
+
+            if isinstance(start_val, IntervalInt) and isinstance(end_val, IntervalInt):
+                result = string_val.substring(start_val.low, end_val.high) if isinstance(string_val, StringAbstraction) else StringAbstraction.top()
             else:
                 result = StringAbstraction.top()
-                
-        else:  # substring(int)
+
+        else: # substring(int)
             start_val = new_state.frame.stack.pop()
             string_val = new_state.frame.stack.pop()
-            
-            # Check for index errors
-            if isinstance(string_val, StringAbstraction):
-                min_len, max_len = string_val.length()
-                
-                if isinstance(start_val, IntervalInt):
-                    if start_val.low < 0:
-                        self.errors.append(f"PC {state.pc}: Possible index out of bounds (negative start)")
-                        self.path_results.append("index out of bounds")
-                        return []
-                    
-                    if start_val.low > max_len:
-                        self.errors.append(f"PC {state.pc}: Possible index out of bounds (start > length)")
-                        self.path_results.append("index out of bounds")
-                        return []
-            
+            if self._check_string_null(state, string_val, "String.substringint()"):
+                return []
             if isinstance(start_val, IntervalInt):
-                start = start_val.low
+                 start = start_val.low
             else:
-                start = 0
-                
-            if isinstance(string_val, StringAbstraction):
-                result = string_val.substring(start)
-            else:
-                result = StringAbstraction.top()
-        
+                 start = 0
+            result = string_val.substring(start) if isinstance(string_val, StringAbstraction) else StringAbstraction.top()
+
         new_state.frame.stack.append(result)
         new_state.pc = self._get_next_pc(instr[0])
         return [new_state]
@@ -1249,6 +1493,35 @@ class AbstractInterpreter(object):
         new_state.pc = self._get_next_pc(instr[0])
         return [new_state]
     
+    def _handle_string_endswith(self, state, instr):
+        if len(state.frame.stack) < 2:
+            return []
+        
+        new_state = state.copy()
+        suffix_val = new_state.frame.stack.pop()
+        string_val = new_state.frame.stack.pop()
+        
+        result_bool = None
+        if isinstance(string_val, StringAbstraction) and isinstance(suffix_val, StringAbstraction):
+            if len(suffix_val.prefixes) == 1 and suffix_val.min_len == suffix_val.max_len:
+                suffix_str = list(suffix_val.prefixes)[0]
+                if len(suffix_str) == suffix_val.min_len:
+                    result_bool = string_val.endsWith(suffix_str)
+        
+        if result_bool is True:
+            bool_val = self.create_abstract_value(1)
+        elif result_bool is False:
+            bool_val = self.create_abstract_value(0)
+        else:
+            if self.use_interval:
+                bool_val = IntervalInt(0, 1)
+            else:
+                bool_val = AbstractInt({Sign.ZERO, Sign.POSITIVE})
+        
+        new_state.frame.stack.append(bool_val)
+        new_state.pc = self._get_next_pc(instr[0])
+        return [new_state]
+    
     def _handle_string_equals(self, state, instr):
         if len(state.frame.stack) < 2:
             return []
@@ -1256,6 +1529,10 @@ class AbstractInterpreter(object):
         new_state = state.copy()
         other_val = new_state.frame.stack.pop()
         string_val = new_state.frame.stack.pop()
+        if self._check_string_null(state, string_val, "String.equals() receiver"):
+            return []
+        if self._check_string_null(state, other_val, "String.equals() argument"):
+            return []
         
         result_bool = None
         if isinstance(string_val, StringAbstraction) and isinstance(other_val, StringAbstraction):
@@ -1282,6 +1559,11 @@ class AbstractInterpreter(object):
         new_state = state.copy()
         other_val = new_state.frame.stack.pop()
         string_val = new_state.frame.stack.pop()
+
+        if self._check_string_null(state, string_val, "String.concat() receiver"):
+            return []
+        if self._check_string_null(state, other_val, "String.concat() argument"):
+            return []
         
         if isinstance(string_val, StringAbstraction) and isinstance(other_val, StringAbstraction):
             result = string_val.concat(other_val)
@@ -1300,6 +1582,11 @@ class AbstractInterpreter(object):
         new_state = state.copy()
         search_val = new_state.frame.stack.pop()
         string_val = new_state.frame.stack.pop()
+        if self._check_string_null(state, string_val, "String.contains()"):
+                return []
+        
+        if self._check_string_null(state, search_val, "String.containsSearch()"):
+                return []
         
         # Return unknown boolean (could be true or false)
         if self.use_interval:
@@ -1313,11 +1600,15 @@ class AbstractInterpreter(object):
     
     def _handle_integer_parseint(self, state, instr):
         """Handle Integer.parseInt(String) - can throw NumberFormatException"""
+        
         if not state.frame.stack:
             return []
         
         new_state = state.copy()
         string_val = new_state.frame.stack.pop()
+
+        if self._check_string_null(state, string_val, "String.parseint()"):
+            return []
         
         # Check if string could be empty or non-numeric
         if isinstance(string_val, StringAbstraction):
@@ -1342,6 +1633,13 @@ class AbstractInterpreter(object):
         new_state = state.copy()
         other_val = new_state.frame.stack.pop()
         string_val = new_state.frame.stack.pop()
+
+
+        if self._check_string_null(state, string_val, "String.compareTo()"):
+                return []
+        
+        if self._check_string_null(state, other_val, "String.compareTo() argument)"):
+                return []
         
         # Returns an integer (negative, zero, or positive)
         if self.use_interval:
@@ -1361,6 +1659,12 @@ class AbstractInterpreter(object):
         new_state = state.copy()
         regex_val = new_state.frame.stack.pop()
         string_val = new_state.frame.stack.pop()
+
+        if self._check_string_null(state, string_val, "String.split()"):
+            return []
+        
+        if self._check_string_null(state, regex_val, "String.splitRegex()"):
+            return []
         
         # Push an array reference (represented as TOP for now)
         new_state.frame.stack.append(self.create_string_top())
@@ -1374,6 +1678,9 @@ class AbstractInterpreter(object):
         
         new_state = state.copy()
         string_val = new_state.frame.stack.pop()
+
+        if self._check_string_null(state, string_val, "String.conversion()"):
+            return []
         
         # Case conversion preserves length
         if isinstance(string_val, StringAbstraction):
@@ -1393,6 +1700,14 @@ class AbstractInterpreter(object):
         replacement_val = new_state.frame.stack.pop()
         target_val = new_state.frame.stack.pop()
         string_val = new_state.frame.stack.pop()
+        if self._check_string_null(state, string_val, "String.replace()"):
+            return []
+        
+        if self._check_string_null(state, target_val, "String.replaceTarget()"):
+            return []
+        
+        if self._check_string_null(state, replacement_val, "String.replaceReplacement()"):
+            return []
         
         # Result is a string (unknown length and content)
         new_state.frame.stack.append(StringAbstraction.top())
@@ -1406,6 +1721,8 @@ class AbstractInterpreter(object):
         
         new_state = state.copy()
         string_val = new_state.frame.stack.pop()
+        if self._check_string_null(state, string_val, "String.trim()"):
+            return []
         
         # Trim can reduce length but maintains type
         if isinstance(string_val, StringAbstraction):
@@ -1430,6 +1747,32 @@ class AbstractInterpreter(object):
             if len(new_state.frame.stack) > 0: 
                 new_state.frame.stack.pop()
         
+        new_state.pc = self._get_next_pc(instr[0])
+        return [new_state]
+    
+    def _handle_invokestatic(self, state, instr):
+        if len(instr) < 3:
+            new_state = state.copy()
+            new_state.pc = self._get_next_pc(instr[0])
+            return [new_state]
+        
+        method_info = instr[2]
+        
+        if isinstance(method_info, tuple) and len(method_info) >= 2:
+            method_desc = str(method_info[1]).lower()
+        else:
+            method_desc = str(method_info).lower()
+        
+        
+        # Integer.parseInt
+        if "parseint" in method_desc or ("integer" in method_desc and "parse" in method_desc):
+            return self._handle_integer_parseint(state, instr)
+        
+        new_state = state.copy()
+        if new_state.frame.stack:
+            new_state.frame.stack.pop()
+        if "(" in method_desc and ")v" not in method_desc:
+            new_state.frame.stack.append(self.create_top())
         new_state.pc = self._get_next_pc(instr[0])
         return [new_state]
     
@@ -1627,26 +1970,26 @@ class AbstractInterpreter(object):
         
         return final_strings
     
-    def get_predicted_errors(self):
+    def get_error_set(self):
         error_set = set()
-        if not self.path_results and not self.errors:
-            return error_set
-
-        errors_to_check = self.path_results if self.path_results else [err.lower() for err in self.errors]
         
-        for err in errors_to_check:
-            err_lower = str(err).lower()
-            if "null pointer" in err_lower:
-                continue
-            elif "divide by zero" in err_lower or "divide" in err_lower:
-                error_set.add("DIV_ZERO")
-            elif "assertion" in err_lower:
-                error_set.add("ASSERT")
-            elif "out of bounds" in err_lower or "range exception" in err_lower:
-                error_set.add("BOUNDS")
-            elif "number format" in err_lower:
-                error_set.add("NFE")
-            elif err_lower not in ["ok", "*", "error"]:
-                error_set.add(err)
-
+        if self.errors:
+            for err in self.errors:
+                err_lower = err.lower()
+                
+                if "null" in err_lower or "pointer" in err_lower:
+                    error_set.add("null pointer exception")
+                elif "assertion" in err_lower:
+                    error_set.add("assertion error")
+                elif "index out of bounds" in err_lower or "out of bounds" in err_lower:
+                    error_set.add("index out of bounds")
+                elif "index range" in err_lower:
+                    error_set.add("index range exception")
+                elif "number format" in err_lower or "parse" in err_lower:
+                    error_set.add("number format exception")
+                elif "division by zero" in err_lower or "divide by zero" in err_lower:
+                    error_set.add("divide by zero")
+                else:
+                    error_set.add("error")
+        
         return error_set

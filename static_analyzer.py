@@ -10,7 +10,6 @@ from collections import Counter
 
 syntaxer.JAVA_ROOT_PATH = "."
 
-
 if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description="Static Analyzer")
@@ -32,6 +31,8 @@ if __name__ == '__main__':
     total_interval_paths = {"ok": 0, "divide by zero": 0, "assertion error": 0,
                            "out of bounds": 0, "null pointer": 0, "*": 0}
     is_strings = True
+
+    method_results = {}
     
     for method in methods:
         method_name = method.name
@@ -44,6 +45,19 @@ if __name__ == '__main__':
         print(f"{'=' * 80}")
 
         print("\n[Abstract Analysis]")
+
+        param_types = []
+        for param in method.parameters:
+            param_name = str(param.name if hasattr(param, 'name') else param).lower()
+            param_type_str = str(param.type if hasattr(param, 'type') else '').lower()
+            
+            if 'string' in param_type_str or 's' == param_name or 'str' in param_name:
+                param_types.append('String')
+            elif 'int' in param_type_str or any(c in param_name for c in ['i', 'n', 'x', 'y']):
+                param_types.append('int')
+            else:
+                param_types.append('int')
+        
         
         if not is_strings:
             # Sign Domain
@@ -94,20 +108,22 @@ if __name__ == '__main__':
                 use_widening=True,
                 use_string= True
             )
-            strings_analyzer.analyze(num_params)
+            strings_analyzer.analyze(num_params,param_types=param_types)
             result = strings_analyzer.get_string_analysis_summary()
 
             print(f"  Result: {result}")
 
-        predicted_errors = strings_analyzer.get_predicted_errors()
-        if method_name not in method_results:
-             method_results[method_name] = {'abs_errors': set(), 'conc_errors': set()}
-        
-        method_results[method_name]['abs_errors'] = predicted_errors
+            error_set = strings_analyzer.get_error_set()
 
-        if method.cases:
+
+        if method.cases and is_strings:
             matches = sum(1 for c in method.cases if result == c['result'])
             print(f"  Match: {matches}/{len(method.cases)}")
+
+            method_results[method_name] = {
+                'abs_errors': error_set,
+                'conc_errors': set()
+            }
 
         print(f"\n[Concrete Execution]")
         for case in method.cases:
@@ -123,14 +139,21 @@ if __name__ == '__main__':
             total_case_num += 1
                 
             concrete_match = result == expected_result or (result.startswith("ok") and expected_result == "ok") 
-            concrete_mark = "✓" if concrete_match else "✗"
+          
 
             if concrete_match:
                 passed_case_num += 1
+            
+            if is_strings:
+                result_lower = result.lower()
+                if result != "ok":
+                    error_id = f"{method_name}_{str(case_parameters)}_{result}"
+                    method_results[method_name]['conc_errors'].add(error_id)
+
 
             print(f"\n  Test : {case_parameters}")
             print(f"    Expected:  {expected_result}")
-            print(f"    Concrete:  {result} {concrete_mark}")
+            print(f"    Concrete:  {result}")
 
 
     if total_case_num > 0:
@@ -156,39 +179,86 @@ if __name__ == '__main__':
             else:
                 print("  No paths analyzed")
         else:
+            print(f"\n{'=' * 80}")
+            print(f"[String Analysis Accuracy Statistics]")
+            print('=' * 80)
+            
             all_predicted_errors = set()
             all_actual_errors = set()
 
             for method_name, results in method_results.items():
-                all_predicted_errors.update(results['abs_errors'])
+                abs_errors = results['abs_errors']
+
+                conc_error_types = set()
+                for error_id in results['conc_errors']:
+                    parts = error_id.rsplit('_', 1)
+                    if len(parts) == 2:
+                        error_type = parts[1]
+                        conc_error_types.add(error_type)
+
+                if abs_errors:
+                    for error_type in abs_errors:
+                        all_predicted_errors.add(f"{method_name}_{error_type}")
+
                 all_actual_errors.update(results['conc_errors'])
 
-            true_positives = all_predicted_errors.intersection(all_actual_errors)
-            false_positives = all_predicted_errors.difference(all_actual_errors)
-            false_negatives = all_actual_errors.difference(all_predicted_errors)
+            true_positives = []
+            false_positives = []
+            false_negatives = []
 
+            for method_name, results in method_results.items():
+                abs_errors = results['abs_errors']
+                conc_error_types = set()
+                for error_id in results['conc_errors']:
+                    parts = error_id.rsplit('_', 1)
+                    if len(parts) == 2:
+                        conc_error_types.add(parts[1])
+
+                tp = abs_errors.intersection(conc_error_types)
+                if tp:
+                    true_positives.extend([f"{method_name}_{e}" for e in tp])
+
+                fp = abs_errors.difference(conc_error_types)
+                if fp:
+                    false_positives.extend([f"{method_name}_{e}" for e in fp])
+
+                fn = conc_error_types.difference(abs_errors)
+                if fn:
+                    false_negatives.extend([f"{method_name}_{e}" for e in fn])
+
+            tp_count = len(true_positives)
             fp_count = len(false_positives)
             fn_count = len(false_negatives)
-            tp_count = len(true_positives)
 
-            if len(all_predicted_errors) > 0:
-                fp_rate = (fp_count / len(all_predicted_errors)) * 100
+            predicted_total = tp_count + fp_count          
+            actual_total = tp_count + fn_count
+
+
+            if predicted_total > 0:
+                fp_rate = (fp_count / predicted_total) * 100
             else:
                 fp_rate = 0.0
-
-            if len(all_actual_errors) > 0:
-                fn_rate = (fn_count / len(all_actual_errors)) * 100
+                
+            if actual_total > 0:
+                fn_rate = (fn_count / actual_total) * 100
             else:
-                fn_rate = 0.0
+                fn_rate = 0.0 
 
-            print(f"\n[Abstract Interpreter Precision Summary] ")
-            print("--------------------------------------------------")
+            
+            print(f"\n[Abstract Interpreter Precision Summary]")
             print(f" True Positives (TP): {tp_count}")
-            print(f" False Positives (FP): {fp_count} ({sorted(list(false_positives))})")
-            print(f" False Negatives (FN): {fn_count} ({sorted(list(false_negatives))})")
+            print(f" False Positives (FP): {fp_count}")
+            if false_positives:
+                fp_types = sorted(list(false_positives))
+                print(f" FP Types: {fp_types}")
+            print(f" False Negatives (FN): {fn_count}")
+            if false_negatives:
+                fn_types = sorted(list(false_negatives))
+                print(f" FN Types: {fn_types}")
             print("--------------------------------------------------")
             print(f" [FP Rate]: {fp_rate:.2f}%")
             print(f" [FN Rate]: {fn_rate:.2f}%")
+        
 
         analysis_print = f"[Concrete Pass Rate]: {passed_case_num/total_case_num*100:.2f}% ({passed_case_num}/{total_case_num})"
         print(analysis_print)
