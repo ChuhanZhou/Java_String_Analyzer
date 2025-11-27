@@ -24,7 +24,7 @@ if __name__ == '__main__':
     # Syntactic Analysis
     methods = syntaxer.get_simplify_ast(case_name)
 
-    # Semantics Analysis
+    # Semantic Analysis
     total_case_num = 0
     passed_case_num = 0
     for method in methods:
@@ -66,7 +66,7 @@ if __name__ == '__main__':
 
         # Coverage-guided Fuzz Test
         print("\t[Fuzz Test]:")
-        interest, total_pc_set = fuzzer.coverage_guided_fuzzing(method,"\t\t")
+        interest, total_pc_set, results = fuzzer.coverage_guided_fuzzing(method,"\t\t")
 
         total_coverage = len(total_pc_set) / len(method.bytecodes[1])
         print("\t\t[Total coverage]: {:.1f}%".format(total_coverage * 100))
@@ -82,6 +82,11 @@ if __name__ == '__main__':
                 type_str += "[]"
             report.append("\t\t\t({} {}): {}".format(type_str, parameter["name"], list(interest[i])))
         print("\n".join(report))
+
+        print("\t\t[Result]:")
+        total_result = sum(results.values())
+        for result_type in results:
+            print("\t\t\t[{}]: {:.1f}% | {}".format(result_type,results[result_type]/total_result*100,results[result_type]))
 
         # Static Analysis
 

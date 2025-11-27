@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import subprocess
 import os
+import itertools
 
 # could not find file, so making the root path absolute (derived from __file__)
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -97,7 +98,19 @@ class JavaMethod(object):
                         type_values["chr"] = set()
 
                     type_values["chr"].add(value)
-                type_values["int"].add(len(value))
+                #type_values["int"].add(len(value))
+
+        # generate int based on string combination
+        if "str" in type_values and len(type_values["str"])>1:
+            str_len_list = [len(s) for s in type_values["str"]]
+
+            #for loop
+            str_for_result = set(i*l for i,l in list(itertools.product(type_values["int"],str_len_list)))
+            type_values["int"] = type_values["int"] | set(str_len_list) | str_for_result
+
+            #str + str
+            for n in range(1,len(str_len_list)):
+                type_values["int"] = type_values["int"] | set(sum(len_list) for len_list in list(itertools.permutations(str_len_list, n+1)))
 
         parameter_values = {}
         array_parameter_values = None

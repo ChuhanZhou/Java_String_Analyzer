@@ -6,15 +6,35 @@ import itertools
 class ParamLoader(object):
 
     def __init__(self,params, values):
+        def generate_list(value_list):
+            full_list = []
+            for i in range(len(value_list)):
+                full_list += itertools.product(value_list,repeat=i+1)
+            return full_list
 
         def generate_str(str_list):
-            full_list = []
-            for i in range(len(str_list)):
-                full_list += itertools.product(str_list,repeat=i+1)
-            return ["".join(group) for group in full_list]
+            return ["".join(group) for group in generate_list(str_list)]
+
+        def generate_int(int_list):
+            full_list = set(int_list)
+            for value in int_list:
+                full_list.add(-value)
+            return list(full_list)
 
         self.params = params
-        self.values = {p["name"]:list(values[p["name"]]) if p["type"][0] != "str" else generate_str(values[p["name"]]) for p in self.params}
+        self.values = {}
+        for p in self.params:
+            value_list = list(values[p["name"]])
+            match p["type"][0]:
+                case "int":
+                    value_list = generate_int(value_list)
+                case "str":
+                    value_list = generate_str(value_list)
+
+            if p["type"][1]:
+                value_list = generate_list(value_list)
+
+            self.values[p["name"]] = value_list
 
         self.param_indexes = []
         init_values = []
@@ -80,6 +100,8 @@ def coverage_guided_fuzzing(method,tab = "\t"):
     interest = []
     histories = set()
 
+    results = {"ok":0}
+
     while (param_loader.has_next() or need_init):
         if need_init:
             need_init = False
@@ -97,6 +119,10 @@ def coverage_guided_fuzzing(method,tab = "\t"):
             case_parameters,
             method.parameters
         )
+
+        if case_result not in results:
+            results[case_result] = 0
+        results[case_result] += 1
 
         coverage = len(pc_set) / len(method.bytecodes[1])
         total_pc_set |= pc_set
@@ -117,12 +143,12 @@ def coverage_guided_fuzzing(method,tab = "\t"):
                 ", ".join(str(param) if type(param).__name__ != "str" else "'{}'".format(param) for param in case_parameters),
                 case_result))
 
-    return interest, total_pc_set
+    return interest, total_pc_set, results
 
 if __name__ == '__main__':
     methods = syntaxer.get_simplify_ast("Strings")
 
     for method in methods:
         print("[Method] {}:".format(method.name))
-        interest, total_pc_set = coverage_guided_fuzzing(method)
+        interest, total_pc_set, results = coverage_guided_fuzzing(method)
         print("")
