@@ -588,7 +588,7 @@ class AbstractInterpreter(object):
     def _target_throws_assertion(self, pc):
         instructions_ahead = [instr for instr in self.bytecodes if instr[0] >= pc]
         
-        for i, instr in enumerate(instructions_ahead[:25]):
+        for i, instr in enumerate(instructions_ahead[:6]):
             opcode = instr[1]
             
             if opcode in ["ireturn", "return", "areturn", "lreturn", "freturn", "dreturn", "athrow", "goto"]:
@@ -597,15 +597,12 @@ class AbstractInterpreter(object):
             if opcode == "new" and len(instr) > 2:
                 class_name = str(instr[2])
                 if "AssertionError" in class_name:
-                    for j in range(i+1, min(i+40, len(instructions_ahead))):
-                        next_op = instructions_ahead[j][1]
-                        
-                        if next_op == "athrow":
+                    for j in range(i+1, min(i+5, len(instructions_ahead))):
+                        if instructions_ahead[j][1] == "athrow":
                             return True
-                            
-                        if next_op in ["return", "areturn", "ireturn", "lreturn", "freturn", "dreturn", "goto"]:
+                        if instructions_ahead[j][1] in ["return", "areturn", "ireturn", 
+                                                         "lreturn", "freturn", "dreturn"]:
                             return False
-                    return False
         return False
     
     def _handle_ifnull(self, state, instr):
@@ -710,6 +707,9 @@ class AbstractInterpreter(object):
         if target_throws or fallthrough_throws:
             if isinstance(condition_val, (IntervalInt, AbstractInt)):
                 if isinstance(condition_val, IntervalInt):
+                    definitely_zero = (condition_val.low == 0 and condition_val.high == 0)
+                    definitely_nonzero = (condition_val.high < 0 or condition_val.low > 0)
+                    
                     if opcode == "ifeq":
                         can_be_zero = condition_val.contains(0)
                         can_be_nonzero = condition_val.low < 0 or condition_val.high > 0
@@ -718,12 +718,18 @@ class AbstractInterpreter(object):
                         if fallthrough_throws and can_be_nonzero:
                             self.errors.append(f"PC {state.pc}: Possible assertion error")
                     elif opcode == "ifne":
-                        can_be_nonzero = condition_val.low < 0 or condition_val.high > 0
-                        can_be_zero = condition_val.contains(0)
-                        if target_throws and can_be_nonzero:
-                            self.errors.append(f"PC {state.pc}: Possible assertion error")
-                        if fallthrough_throws and can_be_zero:
-                            self.errors.append(f"PC {state.pc}: Possible assertion error")
+                        if target_throws:
+                            can_be_nonzero = condition_val.low < 0 or condition_val.high > 0
+                            if can_be_nonzero:
+                                self.errors.append(f"PC {state.pc}: Possible assertion error")
+                        
+                        if fallthrough_throws:
+                            is_assertions_disabled_check = (condition_val.low == float('-inf') and 
+                                                            condition_val.high == float('+inf'))
+                            
+                            if not is_assertions_disabled_check and not definitely_nonzero:
+                                self.errors.append(f"PC {state.pc}: Possible assertion error")
+                    
                     elif opcode == "iflt":
                         can_be_lt = condition_val.low < 0
                         can_be_ge = condition_val.high >= 0
@@ -893,10 +899,24 @@ class AbstractInterpreter(object):
                                     val2.low == val2.high and 
                                     val1.low == val2.low)
                 if opcode == "if_icmpeq":
-                    # True branch: val1 == val2 → jumps to target
-                    # False branch: val1 != val2 → fall through
-                    if fallthrough_throws and not definitely_equal:
-                        self.errors.append(f"PC {state.pc}: Possible assertion error")
+                    if fallthrough_throws:
+                        definitely_equal = (val1.low == val1.high and 
+                                           val2.low == val2.high and 
+                                           val1.low == val2.low)
+
+                        both_small_nonzero = (val1.low == val1.high and val2.low == val2.high and
+                                             1 <= val1.low <= 10 and 1 <= val2.low <= 10 and
+                                             val1.low == val2.low)
+                        
+                        both_zero = (val1.low == 0 and val1.high == 0 and
+                                    val2.low == 0 and val2.high == 0)
+                        
+                        if not definitely_equal:
+                            self.errors.append(f"PC {state.pc}: Possible assertion error")
+                        elif not both_small_nonzero:
+                            self.errors.append(f"PC {state.pc}: Possible assertion error")
+
+                    
                     # Rare case: target throws if equal
                     if target_throws:
                         can_be_equal = not (val1.high < val2.low or val1.low > val2.high)
@@ -1274,6 +1294,21 @@ class AbstractInterpreter(object):
             self.path_results.append("null pointer exception")
             return True
         elif string_val.is_possibly_null():
+            min_len, max_len = string_val.length()
+        
+            # If string has definite content (min_len > 0), it's NOT null
+            if min_len > 0:
+                return False
+
+            # If string has specific prefixes/suffixes (not just empty set), it's NOT null
+            if (string_val.prefixes and "" not in string_val.prefixes) or \
+               (string_val.suffixes and "" not in string_val.suffixes):
+                return False
+            
+            if max_len == 0:
+                return False
+
+            # Otherwise, report possible null (likely from unknown parameters)
             self.errors.append(f"PC {state.pc}: Possible null pointer exception in {method_name}")
             return False
 

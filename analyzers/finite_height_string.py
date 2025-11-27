@@ -328,6 +328,13 @@ class StringAbstraction:
             self.min_len != other.max_len):
             return False
         
+        if self.prefixes and other.prefixes:
+            if not (self.prefixes & other.prefixes): 
+                return False
+
+        if self.max_len < other.min_len or self.min_len > other.max_len:
+            return False
+        
         if self.max_len < other.min_len or self.min_len > other.max_len:
             return False
         
