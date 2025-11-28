@@ -60,7 +60,7 @@ class BricksAbstractValue:
     def top() -> "BricksAbstractValue":
         return BricksAbstractValue([
             Brick(frozenset(['.*']), 0, -1)
-        ])
+        ], can_be_null=True)
 
     @staticmethod
     def from_string(s: str) -> "BricksAbstractValue":

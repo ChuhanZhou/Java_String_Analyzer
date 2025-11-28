@@ -65,7 +65,7 @@ if __name__ == '__main__':
                 bytecodes, 
                 use_interval=False, 
                 use_widening=False,
-                use_string=False
+                use_string=False,
             )
             sign_analyzer.analyze(num_params)
             sign_result = sign_analyzer.get_result_string()
@@ -86,7 +86,7 @@ if __name__ == '__main__':
                 bytecodes, 
                 use_interval=True, 
                 use_widening=True,
-                use_string=False
+                use_string=False,
             )
             interval_analyzer.analyze(num_params)
             interval_result = interval_analyzer.get_result_string()
@@ -102,26 +102,38 @@ if __name__ == '__main__':
                     if result in total_interval_paths:
                         total_interval_paths[result] += count
         else:
-            strings_analyzer = abs_interp.AbstractInterpreter(
+            print("\n[1] Prefix/Suffix Abstraction")
+            prefix_analyzer = abs_interp.AbstractInterpreter(
                 bytecodes, 
                 use_interval=True, 
                 use_widening=True,
-                use_string= True
+                use_string= True,
+                string_abstraction_type='prefix'
             )
-            strings_analyzer.analyze(num_params,param_types=param_types)
-            result = strings_analyzer.get_string_analysis_summary()
+            prefix_analyzer.analyze(num_params, param_types=param_types)
+            prefix_result = prefix_analyzer.get_string_analysis_summary()
+            prefix_errors = prefix_analyzer.get_error_set()
 
-            print(f"  Result: {result}")
+            print(f"  Result: {prefix_result}")
 
-            error_set = strings_analyzer.get_error_set()
+            print("\n[2] Bricks (Regex) Abstraction")
+            bricks_analyzer = abs_interp.AbstractInterpreter(
+                bytecodes,
+                use_interval=True,
+                use_widening=True,
+                use_string=True,
+                string_abstraction_type='bricks'
+            )
+            bricks_analyzer.analyze(num_params, param_types=param_types)
+            bricks_result = bricks_analyzer.get_string_analysis_summary()
+            bricks_errors = bricks_analyzer.get_error_set()
 
+            print(f"  Result: {bricks_result}")
 
-        if method.cases and is_strings:
-            matches = sum(1 for c in method.cases if result == c['result'])
-            print(f"  Match: {matches}/{len(method.cases)}")
 
             method_results[method_name] = {
-                'abs_errors': error_set,
+                'prefix_errors': prefix_errors,
+                'bricks_errors': bricks_errors,
                 'conc_errors': set()
             }
 
@@ -183,81 +195,76 @@ if __name__ == '__main__':
             print(f"[String Analysis Accuracy Statistics]")
             print('=' * 80)
             
-            all_predicted_errors = set()
-            all_actual_errors = set()
+            for abstraction_type in ['prefix', 'bricks']:
+                print(f"\n[{abstraction_type.upper()} Abstraction Accuracy]")
 
-            for method_name, results in method_results.items():
-                abs_errors = results['abs_errors']
+                all_predicted_errors = set()
+                all_actual_errors = set()
 
-                conc_error_types = set()
-                for error_id in results['conc_errors']:
-                    parts = error_id.rsplit('_', 1)
-                    if len(parts) == 2:
-                        error_type = parts[1]
-                        conc_error_types.add(error_type)
+                for method_name, results in method_results.items():
+                    abs_errors = results[f'{abstraction_type}_errors']
 
-                if abs_errors:
                     for error_type in abs_errors:
                         all_predicted_errors.add(f"{method_name}_{error_type}")
 
-                all_actual_errors.update(results['conc_errors'])
+                    all_actual_errors.update(results['conc_errors'])
 
-            true_positives = []
-            false_positives = []
-            false_negatives = []
+                true_positives = []
+                false_positives = []
+                false_negatives = []
 
-            for method_name, results in method_results.items():
-                abs_errors = results['abs_errors']
-                conc_error_types = set()
-                for error_id in results['conc_errors']:
-                    parts = error_id.rsplit('_', 1)
-                    if len(parts) == 2:
-                        conc_error_types.add(parts[1])
+                for method_name, results in method_results.items():
+                    abs_errors = results[f'{abstraction_type}_errors']
+                    conc_error_types = set()
+                    for error_id in results['conc_errors']:
+                        parts = error_id.rsplit('_', 1)
+                        if len(parts) == 2:
+                            conc_error_types.add(parts[1])
 
-                tp = abs_errors.intersection(conc_error_types)
-                if tp:
-                    true_positives.extend([f"{method_name}_{e}" for e in tp])
+                    tp = abs_errors.intersection(conc_error_types)
+                    if tp:
+                        true_positives.extend([f"{method_name}_{e}" for e in tp])
 
-                fp = abs_errors.difference(conc_error_types)
-                if fp:
-                    false_positives.extend([f"{method_name}_{e}" for e in fp])
+                    fp = abs_errors.difference(conc_error_types)
+                    if fp:
+                        false_positives.extend([f"{method_name}_{e}" for e in fp])
 
-                fn = conc_error_types.difference(abs_errors)
-                if fn:
-                    false_negatives.extend([f"{method_name}_{e}" for e in fn])
-
-            tp_count = len(true_positives)
-            fp_count = len(false_positives)
-            fn_count = len(false_negatives)
-
-            predicted_total = tp_count + fp_count          
-            actual_total = tp_count + fn_count
-
-
-            if predicted_total > 0:
-                fp_rate = (fp_count / predicted_total) * 100
-            else:
-                fp_rate = 0.0
+                    fn = conc_error_types.difference(abs_errors)
+                    if fn:
+                        false_negatives.extend([f"{method_name}_{e}" for e in fn])
+    
+                tp_count = len(true_positives)
+                fp_count = len(false_positives)
+                fn_count = len(false_negatives)
+    
+                predicted_total = tp_count + fp_count          
+                actual_total = tp_count + fn_count
+    
+    
+                if predicted_total > 0:
+                    fp_rate = (fp_count / predicted_total) * 100
+                else:
+                    fp_rate = 0.0
+                    
+                if actual_total > 0:
+                    fn_rate = (fn_count / actual_total) * 100
+                else:
+                    fn_rate = 0.0 
+    
                 
-            if actual_total > 0:
-                fn_rate = (fn_count / actual_total) * 100
-            else:
-                fn_rate = 0.0 
-
-            
-            print(f"\n[Abstract Interpreter Precision Summary]")
-            print(f" True Positives (TP): {tp_count}")
-            print(f" False Positives (FP): {fp_count}")
-            if false_positives:
-                fp_types = sorted(list(false_positives))
-                print(f" FP Types: {fp_types}")
-            print(f" False Negatives (FN): {fn_count}")
-            if false_negatives:
-                fn_types = sorted(list(false_negatives))
-                print(f" FN Types: {fn_types}")
-            print("--------------------------------------------------")
-            print(f" [FP Rate]: {fp_rate:.2f}%")
-            print(f" [FN Rate]: {fn_rate:.2f}%")
+                print(f"\n[Abstract Interpreter Precision Summary]")
+                print(f" True Positives (TP): {tp_count}")
+                print(f" False Positives (FP): {fp_count}")
+                if false_positives:
+                    fp_types = sorted(list(false_positives))
+                    print(f" FP Types: {fp_types}")
+                print(f" False Negatives (FN): {fn_count}")
+                if false_negatives:
+                    fn_types = sorted(list(false_negatives))
+                    print(f" FN Types: {fn_types}")
+                print("--------------------------------------------------")
+                print(f" [FP Rate]: {fp_rate:.2f}%")
+                print(f" [FN Rate]: {fn_rate:.2f}%")
         
 
         analysis_print = f"[Concrete Pass Rate]: {passed_case_num/total_case_num*100:.2f}% ({passed_case_num}/{total_case_num})"

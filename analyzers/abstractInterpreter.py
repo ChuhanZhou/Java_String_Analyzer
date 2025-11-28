@@ -3,6 +3,8 @@ from collections import Counter
 from .sign import Sign, AbstractInt
 from .intervalInt import IntervalInt
 from .finite_height_string import StringAbstraction
+from .string_adapter import StringOperations
+from .bricks_string_analysis import Brick,BricksAbstractValue,BricksAnalysis,BricksNormalizer
 import re
 
 class AbstractFrame(object):  
@@ -30,10 +32,18 @@ class AbstractFrame(object):
             elif val2 is None:
                 new_locals[idx] = val1
             else:
-                new_locals[idx] = val1.join(val2)
+                if isinstance(val1, (StringAbstraction, BricksAbstractValue)):
+                    new_locals[idx] = StringOperations.join(val1, val2)
+                else:
+                    new_locals[idx] = val1.join(val2)
         
         assert len(self.stack) == len(other.stack), f"Stack size mismatch: {len(self.stack)} vs {len(other.stack)}"
-        new_stack = [v1.join(v2) for v1, v2 in zip(self.stack, other.stack)]
+        new_stack = []
+        for v1, v2 in zip(self.stack, other.stack):
+            if isinstance(v1, (StringAbstraction, BricksAbstractValue)):
+                new_stack.append(StringOperations.join(v1, v2))
+            else:
+                new_stack.append(v1.join(v2))
         
         return AbstractFrame(locals=new_locals, stack=new_stack)
     
@@ -74,8 +84,8 @@ class AbstractState(object):
                 new_locals[idx] = val1
             elif isinstance(val1, IntervalInt) and isinstance(val2, IntervalInt):
                 new_locals[idx] = val1.widen(val2, constants)
-            elif isinstance(val1, StringAbstraction) and isinstance(val2, StringAbstraction):
-                new_locals[idx] = val1.widen(val2)
+            elif isinstance(val1, (StringAbstraction, BricksAbstractValue)):
+                new_locals[idx] = StringOperations.widen(val1, val2)
             else:
                 new_locals[idx] = val1.join(val2)
         
@@ -83,8 +93,8 @@ class AbstractState(object):
         for v1, v2 in zip(self.frame.stack, other.frame.stack):
             if isinstance(v1, IntervalInt) and isinstance(v2, IntervalInt):
                 new_stack.append(v1.widen(v2, constants))
-            elif isinstance(v1, StringAbstraction) and isinstance(v2, StringAbstraction):
-                new_stack.append(v1.widen(v2))
+            elif isinstance(v1, (StringAbstraction, BricksAbstractValue)):
+                new_stack.append(StringOperations.widen(v1, v2))
             else:
                 new_stack.append(v1.join(v2))
         
@@ -153,12 +163,13 @@ class StateSet(object):
 
 
 class AbstractInterpreter(object):
-    def __init__(self, bytecodes_tuple, use_interval=False, use_widening=True, use_string=False):
+    def __init__(self, bytecodes_tuple, use_interval=False, use_widening=True, use_string=False, string_abstraction_type='prefix'):
         modifiers, instructions_list = bytecodes_tuple
         self.bytecodes = instructions_list
         self.use_interval = use_interval
         self.use_widening = use_widening
         self.use_string = use_string
+        self.string_abstraction_type = string_abstraction_type
         
         self.instructions = {}
         for bc in self.bytecodes:
@@ -224,10 +235,14 @@ class AbstractInterpreter(object):
             return AbstractInt(concrete_value)
         
     def create_abstract_string(self, concrete_string):
-        if self.use_string:
-            return StringAbstraction.from_string(concrete_string)
-        else:
+        if not self.use_string:
             return StringAbstraction.top()
+    
+        if self.string_abstraction_type == 'bricks':
+            return BricksAbstractValue.from_string(concrete_string)
+        else:
+            return StringAbstraction.from_string(concrete_string)
+
     
     def create_top(self):
         if self.use_interval:
@@ -236,10 +251,13 @@ class AbstractInterpreter(object):
             return AbstractInt.top()
     
     def create_string_top(self):
-        if self.use_string:
-            return StringAbstraction.top()
-        else:
+        if not self.use_string:
             return self.create_top()
+
+        if self.string_abstraction_type == 'bricks':
+            return BricksAbstractValue.top()
+        else:
+            return StringAbstraction.top()
     
     def analyze(self, num_parameters: int, param_types: list[str] = None, max_iterations=1000):
         initial_locals = {}
@@ -247,7 +265,7 @@ class AbstractInterpreter(object):
             for i, param_type in enumerate(param_types):
                 if param_type in ['String', 'str', 'string', 'java.lang.String']:
                     if self.use_string:
-                        initial_locals[i] = StringAbstraction.top()
+                        initial_locals[i] = self.create_string_top()
                     else:
                         initial_locals[i] = self.create_top()
                 elif param_type in ['int', 'integer', 'Integer', 'java.lang.Integer']:
@@ -390,7 +408,7 @@ class AbstractInterpreter(object):
             if const_type == "int":
                 new_state.frame.stack.append(self.create_abstract_value(int(const_value)))
             elif const_type in ["string", "str", "String"]:
-                str_val = StringAbstraction.from_string(str(const_value))
+                str_val = self.create_abstract_string(str(const_value))
                 new_state.frame.stack.append(str_val)
             else:
                 new_state.frame.stack.append(self.create_top())
@@ -424,7 +442,7 @@ class AbstractInterpreter(object):
         if idx in new_state.frame.locals:
             new_state.frame.stack.append(new_state.frame.locals[idx])
         else:
-            new_state.frame.stack.append(StringAbstraction.top())
+            new_state.frame.stack.append(self.create_string_top())
         new_state.pc = self._get_next_pc(instr[0])
         return [new_state]
 
@@ -443,9 +461,9 @@ class AbstractInterpreter(object):
         class_name = instr[2] if len(instr) > 2 else ""
         
         if class_name in ["java/lang/String", "String","string"]:
-            new_state.frame.stack.append(StringAbstraction.from_string(""))
+            new_state.frame.stack.append(self.create_abstract_string(""))
         else:
-            new_state.frame.stack.append(StringAbstraction.from_string(""))
+            new_state.frame.stack.append(self.create_abstract_string(""))
         
         new_state.pc = self._get_next_pc(instr[0])
         return [new_state]
@@ -617,9 +635,9 @@ class AbstractInterpreter(object):
         is_definitely_null = False
         is_definitely_not_null = False
 
-        if isinstance(ref_val, StringAbstraction):
-            is_definitely_null = ref_val.is_definitely_null()
-            is_definitely_not_null = ref_val.is_definitely_not_null()
+        if isinstance(ref_val, (StringAbstraction, BricksAbstractValue)):
+            is_definitely_null = StringOperations.is_definitely_null(ref_val)
+            is_definitely_not_null = StringOperations.is_definitely_not_null(ref_val)
 
         # True branch
         true_state = state.copy()
@@ -646,17 +664,26 @@ class AbstractInterpreter(object):
             elif is_definitely_null:
                 return [true_state]
             else:
-                if local_idx is not None and isinstance(ref_val, StringAbstraction):
+                if local_idx is not None and isinstance(ref_val, (StringAbstraction, BricksAbstractValue)):
                     # True branch
-                    true_state.frame.locals[local_idx] = StringAbstraction.null()
+                    if isinstance(ref_val, BricksAbstractValue):
+                        true_state.frame.locals[local_idx] = BricksAbstractValue.null()
+                    else:
+                        true_state.frame.locals[local_idx] = StringAbstraction.null()
                     # False branch
-                    false_state.frame.locals[local_idx] = StringAbstraction(
-                        ref_val.prefixes, ref_val.suffixes, 
-                        ref_val.min_len, ref_val.max_len,
-                        can_be_null=False, 
-                        max_prefix_depth=ref_val.max_prefix_depth,
-                        max_length=ref_val.max_length
-                    )
+                    if isinstance(ref_val, BricksAbstractValue):
+                        false_state.frame.locals[local_idx] = BricksAbstractValue(
+                            ref_val.bricks, 
+                            can_be_null=False
+                        )
+                    else:
+                        false_state.frame.locals[local_idx] = StringAbstraction(
+                            ref_val.prefixes, ref_val.suffixes, 
+                            ref_val.min_len, ref_val.max_len,
+                            can_be_null=False, 
+                            max_prefix_depth=ref_val.max_prefix_depth,
+                            max_length=ref_val.max_length
+                        )
                 return [true_state, false_state]
 
         elif opcode == "ifnonnull":
@@ -668,16 +695,25 @@ class AbstractInterpreter(object):
             elif is_definitely_null:
                 return [false_state]
             else:
-                if local_idx is not None and isinstance(ref_val, StringAbstraction):
-                    true_state.frame.locals[local_idx] = StringAbstraction(
-                        ref_val.prefixes, ref_val.suffixes,
-                        ref_val.min_len, ref_val.max_len,
-                        can_be_null=False,
-                        max_prefix_depth=ref_val.max_prefix_depth,
-                        max_length=ref_val.max_length
-                    )
+                if local_idx is not None and isinstance(ref_val, (StringAbstraction, BricksAbstractValue)):
+                    if isinstance(ref_val, BricksAbstractValue):
+                        true_state.frame.locals[local_idx] = BricksAbstractValue(
+                            ref_val.bricks,
+                            can_be_null=False
+                        )
+                    else:
+                        true_state.frame.locals[local_idx] = StringAbstraction(
+                            ref_val.prefixes, ref_val.suffixes,
+                            ref_val.min_len, ref_val.max_len,
+                            can_be_null=False,
+                            max_prefix_depth=ref_val.max_prefix_depth,
+                            max_length=ref_val.max_length
+                        )
                     # False branch
-                    false_state.frame.locals[local_idx] = StringAbstraction.null()
+                    if isinstance(ref_val, BricksAbstractValue):
+                        false_state.frame.locals[local_idx] = BricksAbstractValue.null()
+                    else:
+                        false_state.frame.locals[local_idx] = StringAbstraction.null()
                 return [true_state, false_state]
     
     def _handle_ifz(self, state, instr):
@@ -1150,7 +1186,7 @@ class AbstractInterpreter(object):
             new_state = state.copy()
             
             if len(new_state.frame.stack) < param_count:
-                new_state.frame.stack.append(StringAbstraction.top())
+                new_state.frame.stack.append(self.create_string_top())
                 new_state.pc = self._get_next_pc(instr[0])
                 return [new_state]
             
@@ -1160,7 +1196,7 @@ class AbstractInterpreter(object):
             stack_values.reverse() 
 
             for operand in stack_values:
-                if isinstance(operand, StringAbstraction):
+                if isinstance(operand, (StringAbstraction,BricksAbstractValue)):
                     if operand.is_definitely_null():
                         self.errors.append(f"PC {state.pc}: Definite null pointer exception in string concatenation")
                         self.path_results.append("null pointer exception")
@@ -1169,7 +1205,7 @@ class AbstractInterpreter(object):
                         self.errors.append(f"PC {state.pc}: Possible null pointer exception in string concatenation")
        
 
-            result = StringAbstraction.from_string("")
+            result = self.create_abstract_string("")
             stack_idx = 0
             
             if values:
@@ -1180,8 +1216,8 @@ class AbstractInterpreter(object):
                             result = self._concat_operand(result, operand)
                             stack_idx += 1
                     else:
-                        const_str = StringAbstraction.from_string(str(val))
-                        result = result.concat(const_str)
+                        const_str = self.create_abstract_string(str(val))
+                        result = StringOperations.concat(result, const_str)
             else:
                 for operand in stack_values:
                     result = self._concat_operand(result, operand)
@@ -1195,15 +1231,16 @@ class AbstractInterpreter(object):
         return [new_state]
     
     def _concat_operand(self, result, operand):
-        if isinstance(operand, StringAbstraction):
-            return result.concat(operand)
+        if isinstance(operand,  (StringAbstraction, BricksAbstractValue)):
+            return StringOperations.concat(result, operand)
         elif isinstance(operand, (IntervalInt, AbstractInt)):
             if isinstance(operand, IntervalInt) and operand.low == operand.high:
-                return result.concat(StringAbstraction.from_string(str(operand.low)))
-            abstract_int_str = StringAbstraction({""}, {""}, 1, 11, can_be_null=False)
-            return result.concat(abstract_int_str)
+                int_str = self.create_abstract_string(str(operand.low))
+                return StringOperations.concat(result, int_str)
+            abstract_int_str = self.create_abstract_string("")
+            return StringOperations.concat(result, abstract_int_str)
         else:
-            return result.concat(StringAbstraction.top())
+            return StringOperations.concat(result, self.create_string_top())
     
     def _handle_invokevirtual(self, state, instr):
         if len(instr) < 3:
@@ -1286,29 +1323,32 @@ class AbstractInterpreter(object):
             return [new_state]
     
     def _check_string_null(self, state, string_val, method_name):
-        if not isinstance(string_val, StringAbstraction):
+        if not isinstance(string_val, (StringAbstraction, BricksAbstractValue)):
             return False
 
-        if string_val.is_definitely_null():
+        if StringOperations.is_definitely_null(string_val):
             self.errors.append(f"PC {state.pc}: Definite null pointer exception in {method_name}")
             self.path_results.append("null pointer exception")
             return True
-        elif string_val.is_possibly_null():
-            min_len, max_len = string_val.length()
-        
-            # If string has definite content (min_len > 0), it's NOT null
+        elif StringOperations.is_possibly_null(string_val):
+            min_len, max_len = StringOperations.length(string_val)
+
             if min_len > 0:
                 return False
 
-            # If string has specific prefixes/suffixes (not just empty set), it's NOT null
-            if (string_val.prefixes and "" not in string_val.prefixes) or \
-               (string_val.suffixes and "" not in string_val.suffixes):
-                return False
-            
+            if isinstance(string_val, StringAbstraction):
+                if (string_val.prefixes and "" not in string_val.prefixes) or \
+                   (string_val.suffixes and "" not in string_val.suffixes):
+                    return False
+            elif isinstance(string_val, BricksAbstractValue):
+                if len(string_val.bricks) > 0 and not all(b.is_empty for b in string_val.bricks):
+                    pass 
+                else:
+                    return False
+
             if max_len == 0:
                 return False
 
-            # Otherwise, report possible null (likely from unknown parameters)
             self.errors.append(f"PC {state.pc}: Possible null pointer exception in {method_name}")
             return False
 
@@ -1321,24 +1361,32 @@ class AbstractInterpreter(object):
         new_state = state.copy()
         string_val = new_state.frame.stack.pop()
 
+        if not isinstance(string_val, (StringAbstraction, BricksAbstractValue)):
+            if self.use_interval:
+                new_state.frame.stack.append(IntervalInt.top())
+            else:
+                new_state.frame.stack.append(AbstractInt({Sign.ZERO, Sign.POSITIVE}))
+            new_state.pc = self._get_next_pc(instr[0])
+            return [new_state]
+
         if self._check_string_null(state, string_val, "String.length()"):
             return []
     
-        if isinstance(string_val, StringAbstraction):
-            min_len, max_len = string_val.length()
-            if self.use_interval:
-                length_val = IntervalInt(min_len, max_len)
-            else:
-                if min_len == max_len == 0:
-                    length_val = AbstractInt({Sign.ZERO})
-                elif min_len > 0:
-                    length_val = AbstractInt({Sign.POSITIVE})
-                elif max_len == 0:
-                    length_val = AbstractInt({Sign.ZERO})
-                else:
-                    length_val = AbstractInt({Sign.ZERO, Sign.POSITIVE})
+        
+        min_len, max_len = StringOperations.length(string_val)
+        if max_len is None:
+            max_len = 1000 
+        if self.use_interval:
+            length_val = IntervalInt(min_len, max_len)
         else:
-            length_val = self.create_top()
+            if min_len == max_len == 0:
+                length_val = AbstractInt({Sign.ZERO})
+            elif min_len > 0:
+                length_val = AbstractInt({Sign.POSITIVE})
+            elif max_len == 0:
+                length_val = AbstractInt({Sign.ZERO})
+            else:
+                length_val = AbstractInt({Sign.ZERO, Sign.POSITIVE})
         
         new_state.frame.stack.append(length_val)
         new_state.pc = self._get_next_pc(instr[0])
@@ -1353,21 +1401,16 @@ class AbstractInterpreter(object):
         new_state = state.copy()
         string_val = new_state.frame.stack.pop()
         
-        if isinstance(string_val, StringAbstraction):
-            min_len, max_len = string_val.length()
-            
-            if min_len == 0 and max_len == 0:
-                result_val = self.create_abstract_value(1)  # true = 1
-            elif min_len > 0:
-                result_val = self.create_abstract_value(0)  # false = 0
-            else:
-                if self.use_interval:
-                    result_val = IntervalInt(0, 1)  # Could be true or false
-                else:
-                    result_val = AbstractInt({Sign.ZERO, Sign.POSITIVE})
+        min_len, max_len = StringOperations.length(string_val)
+        min_len, max_len = string_val.length()
+        
+        if min_len == 0 and max_len == 0:
+            result_val = self.create_abstract_value(1)  # true = 1
+        elif min_len > 0:
+            result_val = self.create_abstract_value(0)  # false = 0
         else:
             if self.use_interval:
-                result_val = IntervalInt(0, 1)
+                result_val = IntervalInt(0, 1)  # Could be true or false
             else:
                 result_val = AbstractInt({Sign.ZERO, Sign.POSITIVE})
         
@@ -1388,30 +1431,27 @@ class AbstractInterpreter(object):
     
         
         # Check for potential index out of bounds
-        if isinstance(string_val, StringAbstraction) and isinstance(index_val, IntervalInt):
-            min_len, max_len = string_val.length()
-            
-            # Check if index could be negative
+        if isinstance(index_val, IntervalInt):
+            min_len, max_len = StringOperations.length(string_val)
+
             if index_val.low < 0:
                 self.errors.append(f"PC {state.pc}: Possible index out of bounds (negative index)")
                 self.path_results.append("index out of bounds")
                 return []
-            
+
             if index_val.low >= max_len:
                 self.errors.append(f"PC {state.pc}: Possible index out of bounds (index >= length)")
                 self.path_results.append("index out of bounds")
                 return []
-            
+
             if index_val.high >= max_len or (min_len == 0 and index_val.high >= 0):
                 self.errors.append(f"PC {state.pc}: Possible index out of bounds")
-                self.path_results.append("index out of bounds")
-                return []
-        
+
         if self.use_interval:
-            new_state.frame.stack.append(IntervalInt(0, 65535))  # char range
+            new_state.frame.stack.append(IntervalInt(0, 65535))
         else:
             new_state.frame.stack.append(AbstractInt({Sign.ZERO, Sign.POSITIVE}))
-        
+
         new_state.pc = self._get_next_pc(instr[0])
         return [new_state]
     
@@ -1437,6 +1477,8 @@ class AbstractInterpreter(object):
             if self._check_string_null(state, start_val, "String.substringStart()"):
                 return []
             
+            min_len, max_len = StringOperations.length(string_val)
+            
             # 1.  start < 0
             if isinstance(start_val, IntervalInt):
                 if start_val.high < 0: # Definite
@@ -1446,10 +1488,6 @@ class AbstractInterpreter(object):
                 if start_val.low < 0: # Possible
                     self.errors.append(f"PC {state.pc}: Possible index out of bounds (negative start)")
                     self.path_results.append("index out of bounds")
-
-            min_len, max_len = (0, 100)
-            if isinstance(string_val, StringAbstraction):
-                min_len, max_len = string_val.length()
 
             if isinstance(start_val, IntervalInt):
                 if start_val.low > max_len: # Definite
@@ -1481,9 +1519,9 @@ class AbstractInterpreter(object):
                      self.path_results.append("index range exception")
 
             if isinstance(start_val, IntervalInt) and isinstance(end_val, IntervalInt):
-                result = string_val.substring(start_val.low, end_val.high) if isinstance(string_val, StringAbstraction) else StringAbstraction.top()
+                result = StringOperations.substring(string_val, start_val.low, end_val.high)
             else:
-                result = StringAbstraction.top()
+                result = self.create_string_top()
 
         else: # substring(int)
             start_val = new_state.frame.stack.pop()
@@ -1494,7 +1532,8 @@ class AbstractInterpreter(object):
                  start = start_val.low
             else:
                  start = 0
-            result = string_val.substring(start) if isinstance(string_val, StringAbstraction) else StringAbstraction.top()
+
+            result = StringOperations.substring(string_val, start)
 
         new_state.frame.stack.append(result)
         new_state.pc = self._get_next_pc(instr[0])
@@ -1509,11 +1548,17 @@ class AbstractInterpreter(object):
         string_val = new_state.frame.stack.pop()
         
         result_bool = None
-        if isinstance(string_val, StringAbstraction) and isinstance(prefix_val, StringAbstraction):
-            if len(prefix_val.prefixes) == 1 and prefix_val.min_len == prefix_val.max_len:
+        if isinstance(prefix_val, (StringAbstraction, BricksAbstractValue)):
+            if hasattr(prefix_val, 'prefixes') and len(prefix_val.prefixes) == 1:
                 prefix_str = list(prefix_val.prefixes)[0]
-                result_bool = string_val.startsWith(prefix_str)
-        
+                result_bool = StringOperations.startsWith(string_val, prefix_str)
+            elif isinstance(prefix_val, BricksAbstractValue):
+                if len(prefix_val.bricks) == 1:
+                    brick = prefix_val.bricks[0]
+                    if brick.min_count == 1 and brick.max_count == 1 and len(brick.strings) == 1:
+                        prefix_str = list(brick.strings)[0]
+                        result_bool = StringOperations.startsWith(string_val, prefix_str)
+    
         if result_bool is True:
             bool_val = self.create_abstract_value(1)
         elif result_bool is False:
@@ -1537,11 +1582,16 @@ class AbstractInterpreter(object):
         string_val = new_state.frame.stack.pop()
         
         result_bool = None
-        if isinstance(string_val, StringAbstraction) and isinstance(suffix_val, StringAbstraction):
-            if len(suffix_val.prefixes) == 1 and suffix_val.min_len == suffix_val.max_len:
+        if isinstance(suffix_val, (StringAbstraction, BricksAbstractValue)):
+            if hasattr(suffix_val, 'prefixes') and len(suffix_val.prefixes) == 1:
                 suffix_str = list(suffix_val.prefixes)[0]
-                if len(suffix_str) == suffix_val.min_len:
-                    result_bool = string_val.endsWith(suffix_str)
+                result_bool = StringOperations.endsWith(string_val, suffix_str)
+            elif isinstance(suffix_val, BricksAbstractValue):
+                if len(suffix_val.bricks) == 1:
+                    brick = suffix_val.bricks[0]
+                    if brick.min_count == 1 and brick.max_count == 1 and len(brick.strings) == 1:
+                        suffix_str = list(brick.strings)[0]
+                        result_bool = StringOperations.endsWith(string_val, suffix_str)
         
         if result_bool is True:
             bool_val = self.create_abstract_value(1)
@@ -1570,8 +1620,7 @@ class AbstractInterpreter(object):
             return []
         
         result_bool = None
-        if isinstance(string_val, StringAbstraction) and isinstance(other_val, StringAbstraction):
-            result_bool = string_val.equals(other_val)
+        result_bool = StringOperations.equals(string_val, other_val)
         
         if result_bool is True:
             bool_val = self.create_abstract_value(1)
@@ -1600,10 +1649,7 @@ class AbstractInterpreter(object):
         if self._check_string_null(state, other_val, "String.concat() argument"):
             return []
         
-        if isinstance(string_val, StringAbstraction) and isinstance(other_val, StringAbstraction):
-            result = string_val.concat(other_val)
-        else:
-            result = StringAbstraction.top()
+        result = StringOperations.concat(string_val, other_val)
         
         new_state.frame.stack.append(result)
         new_state.pc = self._get_next_pc(instr[0])
@@ -1617,6 +1663,14 @@ class AbstractInterpreter(object):
         new_state = state.copy()
         search_val = new_state.frame.stack.pop()
         string_val = new_state.frame.stack.pop()
+        if not isinstance(string_val, (StringAbstraction, BricksAbstractValue)):
+            if self.use_interval:
+                bool_val = IntervalInt(0, 1)
+            else:
+                bool_val = AbstractInt({Sign.ZERO, Sign.POSITIVE})
+            new_state.frame.stack.append(bool_val)
+            new_state.pc = self._get_next_pc(instr[0])
+            return [new_state]
         if self._check_string_null(state, string_val, "String.contains()"):
                 return []
         
@@ -1646,8 +1700,8 @@ class AbstractInterpreter(object):
             return []
         
         # Check if string could be empty or non-numeric
-        if isinstance(string_val, StringAbstraction):
-            min_len, max_len = string_val.length()
+        if isinstance(string_val, (StringAbstraction,BricksAbstractValue)):
+            min_len, max_len = StringOperations.length(string_val)
             
             # If string could be empty or TOP (unknown content)
             if min_len == 0 or string_val.is_top():
@@ -1668,6 +1722,15 @@ class AbstractInterpreter(object):
         new_state = state.copy()
         other_val = new_state.frame.stack.pop()
         string_val = new_state.frame.stack.pop()
+
+        if not isinstance(string_val, (StringAbstraction, BricksAbstractValue)):
+            if self.use_interval:
+                result_val = IntervalInt.top()
+            else:
+                result_val = AbstractInt({Sign.NEGATIVE, Sign.ZERO, Sign.POSITIVE})
+            new_state.frame.stack.append(result_val)
+            new_state.pc = self._get_next_pc(instr[0])
+            return [new_state]
 
 
         if self._check_string_null(state, string_val, "String.compareTo()"):
@@ -1695,6 +1758,11 @@ class AbstractInterpreter(object):
         regex_val = new_state.frame.stack.pop()
         string_val = new_state.frame.stack.pop()
 
+        if not isinstance(string_val, (StringAbstraction, BricksAbstractValue)):
+            new_state.frame.stack.append(self.create_string_top())
+            new_state.pc = self._get_next_pc(instr[0])
+            return [new_state]
+
         if self._check_string_null(state, string_val, "String.split()"):
             return []
         
@@ -1714,14 +1782,33 @@ class AbstractInterpreter(object):
         new_state = state.copy()
         string_val = new_state.frame.stack.pop()
 
+        if not isinstance(string_val, (StringAbstraction, BricksAbstractValue)):
+            new_state.frame.stack.append(self.create_string_top())
+            new_state.pc = self._get_next_pc(instr[0])
+            return [new_state]
+
         if self._check_string_null(state, string_val, "String.conversion()"):
             return []
         
         # Case conversion preserves length
-        if isinstance(string_val, StringAbstraction):
-            new_state.frame.stack.append(string_val)
+        if isinstance(string_val, BricksAbstractValue):
+            min_len, max_len_opt = string_val.length()
+            max_len = max_len_opt if max_len_opt is not None else 1000
+
+            result = BricksAbstractValue([
+                Brick(frozenset(['.*']), 1, 1)
+            ], can_be_null=False)
         else:
-            new_state.frame.stack.append(StringAbstraction.top())
+            min_len, max_len = string_val.length()
+            result = StringAbstraction(
+                prefixes={""}, 
+                suffixes={""}, 
+                min_len=min_len, 
+                max_len=max_len,
+                can_be_null=False,
+                max_prefix_depth=string_val.max_prefix_depth,
+                max_length=string_val.max_length
+            )
         
         new_state.pc = self._get_next_pc(instr[0])
         return [new_state]
@@ -1735,6 +1822,11 @@ class AbstractInterpreter(object):
         replacement_val = new_state.frame.stack.pop()
         target_val = new_state.frame.stack.pop()
         string_val = new_state.frame.stack.pop()
+        if not isinstance(string_val, (StringAbstraction, BricksAbstractValue)):
+            new_state.frame.stack.append(self.create_string_top())
+            new_state.pc = self._get_next_pc(instr[0])
+            return [new_state]
+    
         if self._check_string_null(state, string_val, "String.replace()"):
             return []
         
@@ -1744,8 +1836,13 @@ class AbstractInterpreter(object):
         if self._check_string_null(state, replacement_val, "String.replaceReplacement()"):
             return []
         
+        if isinstance(string_val, BricksAbstractValue):
+            result = BricksAbstractValue.top()
+        else:
+            result = StringAbstraction.top()
+        
         # Result is a string (unknown length and content)
-        new_state.frame.stack.append(StringAbstraction.top())
+        new_state.frame.stack.append(result)
         new_state.pc = self._get_next_pc(instr[0])
         return [new_state]
     
@@ -1756,16 +1853,32 @@ class AbstractInterpreter(object):
         
         new_state = state.copy()
         string_val = new_state.frame.stack.pop()
+
+        if not isinstance(string_val, (StringAbstraction, BricksAbstractValue)):
+            new_state.frame.stack.append(self.create_string_top())
+            new_state.pc = self._get_next_pc(instr[0])
+            return [new_state]
+    
         if self._check_string_null(state, string_val, "String.trim()"):
             return []
         
+        min_len, max_len = StringOperations.length(string_val)
+        
         # Trim can reduce length but maintains type
-        if isinstance(string_val, StringAbstraction):
-            min_len, max_len = string_val.length()
-            # After trim, min_len could be 0
-            result = StringAbstraction.top()
+        if isinstance(string_val, BricksAbstractValue):
+            result = BricksAbstractValue([
+                Brick(frozenset(['.*']), 0, -1)
+            ], can_be_null=False)
         else:
-            result = StringAbstraction.top()
+            result = StringAbstraction(
+                prefixes={""}, 
+                suffixes={""}, 
+                min_len=0, 
+                max_len=max_len, 
+                can_be_null=False,
+                max_prefix_depth=string_val.max_prefix_depth,
+                max_length=string_val.max_length
+            )
         
         new_state.frame.stack.append(result)
         new_state.pc = self._get_next_pc(instr[0])
