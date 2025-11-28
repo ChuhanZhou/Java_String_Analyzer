@@ -4,19 +4,15 @@ from typing import Set, Optional
 
 @dataclass(frozen=True)
 class StringAbstraction:
-    """
-    Finite-height string abstraction.
-    - prefix: known prefixes (bounded depth ensures finite-height)
-    - length: length interval (bounded max ensures finite-height)
-    """
-    prefixes: Set[str]  # Set of possible prefixes
+    """finite-height string abstraction using prefix + length info"""
+    prefixes: Set[str]  # set of possible prefixes
     min_len: int
     max_len: int
-    max_prefix_depth: int = 3  # Ensures finite-height
-    max_length: int = 100  # Ensures finite-height
+    max_prefix_depth: int = 3  # ensures finite-height
+    max_length: int = 100  # ensures finite-height
     
     def __post_init__(self):
-        # Truncate prefixes to max_depth
+        # truncate prefixes to max_depth
         if self.max_prefix_depth > 0:
             truncated = set()
             for prefix in self.prefixes:
@@ -26,23 +22,23 @@ class StringAbstraction:
                     truncated.add(prefix)
             object.__setattr__(self, 'prefixes', truncated)
         
-        # Bound length
+        # bound length
         if self.max_len > self.max_length:
             object.__setattr__(self, 'max_len', self.max_length)
     
     @classmethod
     def bottom(cls, max_prefix_depth: int = 3, max_length: int = 100) -> "StringAbstraction":
-        """Bottom: no strings"""
+        """bottom: no strings"""
         return cls(set(), 1, 0, max_prefix_depth, max_length)
     
     @classmethod
     def top(cls, max_prefix_depth: int = 3, max_length: int = 100) -> "StringAbstraction":
-        """Top: all strings"""
+        """top: all strings"""
         return cls({""}, 0, max_length, max_prefix_depth, max_length)
     
     @classmethod
     def from_string(cls, s: str, max_prefix_depth: int = 3, max_length: int = 100) -> "StringAbstraction":
-        """Create from concrete string"""
+        """create from concrete string"""
         if not s:
             return cls({""}, 0, 0, max_prefix_depth, max_length)
         prefix = s[:min(len(s), max_prefix_depth)]
@@ -55,7 +51,7 @@ class StringAbstraction:
         return "" in self.prefixes and self.min_len == 0 and self.max_len == self.max_length
     
     def join(self, other: "StringAbstraction") -> "StringAbstraction":
-        """Join (least upper bound)"""
+        """least upper bound"""
         if self.is_bottom():
             return other
         if other.is_bottom():
@@ -63,7 +59,7 @@ class StringAbstraction:
         if self.is_top() or other.is_top():
             return self.top(self.max_prefix_depth, self.max_length)
         
-        # Join prefixes: find common prefixes or widen
+        # join prefixes, find common prefixes or widen
         new_prefixes = set()
         for p1 in self.prefixes:
             for p2 in other.prefixes:
@@ -77,11 +73,11 @@ class StringAbstraction:
                 if common:
                     new_prefixes.add(common)
         
-        # If no common prefix, widen to top
+        # if no common prefix, widen to top
         if not new_prefixes:
             return self.top()
         
-        # Join length intervals
+        # join length intervals
         new_min_len = min(self.min_len, other.min_len)
         new_max_len = max(self.max_len, other.max_len)
         
@@ -89,16 +85,16 @@ class StringAbstraction:
                                 self.max_prefix_depth, self.max_length)
     
     def widen(self, other: "StringAbstraction") -> "StringAbstraction":
-        """Widening operator for termination"""
+        """simple widening to force convergence"""
         joined = self.join(other)
-        # If max length increases significantly, widen to top
+        # if max length increases, widen to top
         if joined.max_len > self.max_len * 2:
             return self.top()
         return joined
     
     def concat(self, other: "StringAbstraction") -> "StringAbstraction":
-        """Transfer function: string concatenation"""
-        # Combine prefixes
+        """abstract version of s1 + s2"""
+        # combine prefixes
         new_prefixes = set()
         for p1 in self.prefixes:
             for p2 in other.prefixes:
@@ -107,11 +103,76 @@ class StringAbstraction:
                     combined = combined[:self.max_prefix_depth]
                 new_prefixes.add(combined)
         
-        # Add lengths
+        # add length
         new_min_len = self.min_len + other.min_len
         new_max_len = self.max_len + other.max_len
         if new_max_len > self.max_length:
             new_max_len = self.max_length
+        
+        return StringAbstraction(new_prefixes, new_min_len, new_max_len,
+                                self.max_prefix_depth, self.max_length)
+    
+    def length(self) -> tuple[int, int]:
+        """returns (min,max) length"""
+        return (self.min_len, self.max_len)
+    
+    def startsWith(self, prefix: str) -> Optional[bool]:
+        """best effort startswith check (True/False/None)"""
+        if self.is_top():
+            return None  # could be any string / unknown
+        
+        # check if any tracked prefix matches
+        for p in self.prefixes:
+            if p.startswith(prefix):
+                # our tracked prefix matches
+                # if prefix length <= our tracked prefix length, its true
+                if len(prefix) <= len(p):
+                    return True
+                # otherwise might be true if we have longer strings
+                if self.min_len >= len(prefix):
+                    return None  # possibly true
+                return False
+        
+        # no match in known prefixes
+        if self.min_len < len(prefix):
+            return False
+        return None  # could still match if we have longer strings
+    
+    def equals(self, other: "StringAbstraction") -> Optional[bool]:
+        """cheap equality check"""
+        if self.is_top() or other.is_top():
+            return None  # unknown
+        
+        # check if prefixes and lengths match 
+        if self.prefixes == other.prefixes:
+            # prefixes match, check if lengths also match 
+            if (self.min_len == self.max_len and 
+                other.min_len == other.max_len and 
+                self.min_len == other.min_len):
+                # exact match on both prefix and length. if exact length and matching prefix, they are equal
+                return True
+        
+        # lengths disagree, false if both exact
+        if (self.min_len == self.max_len and 
+            other.min_len == other.max_len and 
+            self.min_len != other.max_len):
+            return False
+        
+        return None  # cant determine for abstract strings
+    
+    def substring(self, start: int, end: Optional[int] = None) -> "StringAbstraction":
+        """keeps length info, drops prefix detail"""
+        if end is None:
+            # s.substring(start), from start to end of string
+            new_min_len = max(0, self.min_len - start)
+            new_max_len = max(0, self.max_len - start)
+        else:
+            # s.substring(start, end), from start to end
+            new_min_len = max(0, min(self.min_len, end - start))
+            new_max_len = max(0, min(self.max_len, end - start))
+        
+        # prefix info is basically unknown after substring
+        new_prefixes = {""}
         
         return StringAbstraction(new_prefixes, new_min_len, new_max_len,
                                 self.max_prefix_depth, self.max_length)
@@ -123,14 +184,3 @@ class StringAbstraction:
             return "⊥"
         prefix_str = ",".join(sorted(self.prefixes)) if self.prefixes else "∅"
         return f"{{prefix={prefix_str}, len=[{self.min_len},{self.max_len}]}}"
-
-
-# Example usage
-if __name__ == "__main__":
-    s1 = StringAbstraction.from_string("carpet")
-    s2 = StringAbstraction.from_string("carton")
-    
-    print(f"s1 = {s1}")
-    print(f"s2 = {s2}")
-    print(f"s1.join(s2) = {s1.join(s2)}")
-    print(f"s1.concat(s2) = {s1.concat(s2)}")
