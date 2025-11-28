@@ -324,7 +324,7 @@ def run_bytecodes(bytecodes_tuple, input_values, pc_set=set()):
             
             # String.matches(String) - for regex
             elif "matches" in method_desc.lower():
-                regex = stack.pop()
+                regex = bytes(stack.pop(), "utf-8").decode("unicode_escape")
                 string_obj = stack.pop()
                 if string_obj is None or regex is None:
                     return "null pointer exception"
