@@ -6,12 +6,15 @@ __pycache__/
 
 # Virtual Environment
 venv/
-env/
 .venv/
+env/
 
 # IDE
 .vscode/
 .idea/
+
+#macOS
+.DS_Store
 
 # keep new cases
 benchmark_suite/*
@@ -30,4 +33,7 @@ benchmark_suite/src/main/java/jpamb/cases/Loops.java
 benchmark_suite/src/main/java/jpamb/cases/Simple.java
 benchmark_suite/src/main/java/jpamb/cases/Tricky.java
 
-!benchmark_suite/src/main/java/jpamb/cases/Strings.java
+#Whitelist
+benchmark_suite/src/main/java/jpamb/cases/*
+!benchmark_suite/src/main/java/jpamb/cases/String.java
+#add the path to the new test case file here
