@@ -467,8 +467,5 @@ def get_simplify_ast(name):
 if __name__ == '__main__':
     methods = get_simplify_ast("Strings")
 
-    a = chr(10)
-    a=1
-
     for method in methods:
         print(method.syntactic_report())
