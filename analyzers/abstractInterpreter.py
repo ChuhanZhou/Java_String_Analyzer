@@ -188,6 +188,7 @@ class AbstractInterpreter(object):
         self.iteration_count = 0
         self.join_count = 0
         self.widen_count = 0
+        self.pc_set = set()
     
     def _extract_constants(self):
         constants = {0}
@@ -301,6 +302,8 @@ class AbstractInterpreter(object):
             
             if pc not in self.instructions:
                 continue
+            else:
+                self.pc_set.add(pc)
             
             instruction = self.instructions[pc]
             successors = self.step(state, instruction)
