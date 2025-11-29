@@ -130,10 +130,25 @@ if __name__ == '__main__':
 
             print(f"  Result: {bricks_result}")
 
+            print("\n[3] Integrated Abstraction")
+            integrated_analyzer = abs_interp.AbstractInterpreter(
+                bytecodes,
+                use_interval=True,
+                use_widening=True,
+                use_string=True,
+                string_abstraction_type='integrated'
+            )
+
+            integrated_analyzer.analyze(num_params, param_types=param_types)
+            integrated_result = integrated_analyzer.get_string_analysis_summary()
+            integrated_errors = integrated_analyzer.get_error_set()
+
+            print(f"  Result: {integrated_result}")
 
             method_results[method_name] = {
                 'prefix_errors': prefix_errors,
                 'bricks_errors': bricks_errors,
+                'integrated_errors': integrated_errors,
                 'conc_errors': set()
             }
 
@@ -195,7 +210,7 @@ if __name__ == '__main__':
             print(f"[String Analysis Accuracy Statistics]")
             print('=' * 80)
             
-            for abstraction_type in ['prefix', 'bricks']:
+            for abstraction_type in ['prefix', 'bricks', 'integrated']:
                 print(f"\n[{abstraction_type.upper()} Abstraction Accuracy]")
 
                 all_predicted_errors = set()
@@ -232,26 +247,26 @@ if __name__ == '__main__':
                     fn = conc_error_types.difference(abs_errors)
                     if fn:
                         false_negatives.extend([f"{method_name}_{e}" for e in fn])
-    
+
                 tp_count = len(true_positives)
                 fp_count = len(false_positives)
                 fn_count = len(false_negatives)
-    
+
                 predicted_total = tp_count + fp_count          
                 actual_total = tp_count + fn_count
-    
-    
+
+
                 if predicted_total > 0:
                     fp_rate = (fp_count / predicted_total) * 100
                 else:
                     fp_rate = 0.0
-                    
+
                 if actual_total > 0:
                     fn_rate = (fn_count / actual_total) * 100
                 else:
                     fn_rate = 0.0 
-    
-                
+
+
                 print(f"\n[Abstract Interpreter Precision Summary]")
                 print(f" True Positives (TP): {tp_count}")
                 print(f" False Positives (FP): {fp_count}")
