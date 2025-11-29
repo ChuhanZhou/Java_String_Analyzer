@@ -6,20 +6,20 @@ This repository contains the implementation of Java syntactic analysis and seman
 
 ### Step 0: Clone git
 ```bash
-git clone https://github.com/ChuhanZhou/Java_Static_Analyzer.git
+git clone https://github.com/ChuhanZhou/Java_String_Analyzer.git
 ```
 
 ### Step 1: Clone [JPAMB](https://github.com/kalhauge/jpamb) benchmark suite
 
 #### Linux and macOS:
 ```bash
-cd Java_Static_Analyzer
+cd Java_String_Analyzer
 sh clone_jpamb.sh
 ```
 
 #### Windows:
 ```bash
-cd Java_Static_Analyzer
+cd Java_String_Analyzer
 clone_jpamb.sh
 ```
 
@@ -44,7 +44,7 @@ conda activate env_jsa
 
 ### Place the Java file in the case folder
 ```
-Java_Static_Analyzer/benchmark_suite/src/main/java/jpamb/cases/
+Java_String_Analyzer/benchmark_suite/src/main/java/jpamb/cases/
 ```
 
 ### Run analyzer
