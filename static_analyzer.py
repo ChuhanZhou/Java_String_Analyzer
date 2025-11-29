@@ -73,9 +73,8 @@ if __name__ == '__main__':
                 passed_case_num += 1
 
             if is_strings:
-                result_lower = result.lower()
-                if result != "ok":
-                    error_id = f"{method_name}_{str(case_parameters)}_{result}"
+                if case_result != "ok":
+                    error_id = f"{method_name}_{str(case_parameters)}_{case_result}"
                     method_results[method_name]['conc_errors'].add(error_id)
             
             print(f"    Expected:  {true_result}")
@@ -88,8 +87,6 @@ if __name__ == '__main__':
 
         # Static Analysis
         num_params = len(method.parameters)
-
-        print("\n[Abstract Analysis]")
 
         param_types = []
         for param in method.parameters:
@@ -190,12 +187,9 @@ if __name__ == '__main__':
 
             print(f"  Result: {integrated_result}")
 
-            method_results[method_name] = {
-                'prefix_errors': prefix_errors,
-                'bricks_errors': bricks_errors,
-                'integrated_errors': integrated_errors,
-                'conc_errors': set()
-            }
+            method_results[method_name]['prefix_errors'] = prefix_errors
+            method_results[method_name]['bricks_errors'] = bricks_errors
+            method_results[method_name]['integrated_errors'] = integrated_errors
     
     analysis_print = "[Case Pass Rate]: {:.2f}% ({}/{})".format(passed_case_num/total_case_num*10**2,passed_case_num,total_case_num)
     print("-"*len(analysis_print))
