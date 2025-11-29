@@ -1,22 +1,6 @@
-
 from dataclasses import dataclass
 from pathlib import Path
 import sys
-
-class StringBuilderModel:
-    def __init__(self, initial_value=""):
-        self.parts = [str(initial_value)]
-        self.reference_id = id(self)
-
-    def append(self, value):
-        self.parts.append("null" if value is None else str(value))
-        return self
-
-    def toString(self):
-        return "".join(self.parts)
-
-    def __repr__(self):
-        return f"<StringBuilderRef ID={self.reference_id}>"
 
 def run_bytecodes(bytecodes_tuple, input_values, pc_set=set()):
     modifiers, instructions = bytecodes_tuple
@@ -28,13 +12,12 @@ def run_bytecodes(bytecodes_tuple, input_values, pc_set=set()):
     
     stack = []
     pc = 0
+    
 
-    for _ in range(50000):
+    for _ in range(1000):
         if pc >= len(instructions):
             return "ok"
-        else:
-            pc_set.add(pc)
-
+        
         instruction = instructions[pc]
         
         offset = instruction[0]
@@ -136,21 +119,9 @@ def run_bytecodes(bytecodes_tuple, input_values, pc_set=set()):
             # Handle virtual method calls (String methods, etc.)
             method_info = args[0]
             method_desc = str(method_info)
-
-            if "tostring" in method_desc.lower():
-                builder_ref = stack.pop() 
-
-                if isinstance(builder_ref, StringBuilderModel):
-                    final_string = builder_ref.toString()
-                    stack.append(final_string) 
-                else:
-                    if builder_ref is None:
-                        return "null pointer exception"
-                    stack.append(str(builder_ref))
-
             
             # String.length()
-            elif "length" in method_desc.lower():
+            if "length" in method_desc.lower():
                 string_obj = stack.pop()
                 if string_obj is None:
                     return "null pointer exception"
@@ -236,18 +207,6 @@ def run_bytecodes(bytecodes_tuple, input_values, pc_set=set()):
                 if not isinstance(string_obj, str):
                     return "type error"
                 stack.append(string_obj + str(other))
-
-            elif "append" in method_desc.lower():
-                arg = stack.pop()
-                builder_ref = stack.pop()
-
-                if builder_ref is None:
-                    return "null pointer exception"
-                if not isinstance(builder_ref, StringBuilderModel):
-                    pass 
-                
-                builder_ref.append(arg)
-                stack.append(builder_ref)
             
             # String.split(String)
             elif "split" in method_desc.lower():
@@ -324,7 +283,7 @@ def run_bytecodes(bytecodes_tuple, input_values, pc_set=set()):
             
             # String.matches(String) - for regex
             elif "matches" in method_desc.lower():
-                regex = bytes(stack.pop(), "utf-8").decode("unicode_escape")
+                regex = stack.pop()
                 string_obj = stack.pop()
                 if string_obj is None or regex is None:
                     return "null pointer exception"
@@ -360,16 +319,16 @@ def run_bytecodes(bytecodes_tuple, input_values, pc_set=set()):
                     stack.append(int(string_obj))
                 except ValueError:
                     return "number format exception"
-            elif "concatenate" in method_desc.lower() or "concat" in method_desc.lower():
-                if len(stack) >= 2:
-                    s2 = stack.pop()
-                    s1 = stack.pop()
+            elif "concatenate" in method_desc.lower() and len(stack) >= 2:
+                # Pop v1 ("World") and v0 ("Hello")
+                s2 = stack.pop()
+                s1 = stack.pop()
 
-                    sb = StringBuilderModel()
-                    sb.append(s1)
-                    sb.append(s2)
-                    result = sb.toString()
-                    stack.append(result)
+                if s1 is None or s2 is None:
+                    return "null pointer exception"
+                
+                # Push the concatenated result onto the stack
+                stack.append(str(s1) + str(s2))
             else:
                 raise NotImplementedError(f"Static method not implemented: {method_desc}")
             
@@ -422,8 +381,6 @@ def run_bytecodes(bytecodes_tuple, input_values, pc_set=set()):
         elif opcode in ["if_icmpeq", "if_icmpne", "if_icmplt", "if_icmple", "if_icmpgt", "if_icmpge"]:
             target = int(args[0])
             v2, v1 = stack.pop(), stack.pop()
-
-            #print(f"DEBUG STACK FINAL: v1={v1} | v2={v2} | Remainder={stack}")
             
             should_jump = False
             if opcode == "if_icmpeq":
