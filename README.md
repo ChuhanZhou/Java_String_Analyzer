@@ -1,4 +1,4 @@
-# Java Static Analyzer
+# Java String Analyzer
 
 This repository contains the implementation of Java syntactic analysis and semantic analysis. This analyzer is designed to handle integers, booleans and extends to strings in Java programs, implementing static analysis of string operations through novel abstractions.
 
@@ -39,3 +39,21 @@ pip install -r requirements.txt
 conda env create -f environment.yml
 conda activate env_jsa
 ```
+
+## Analyze java methods
+
+### Place the Java file in the case folder
+```
+Java_Static_Analyzer/benchmark_suite/src/main/java/jpamb/cases/
+```
+
+### Run analyzer
+```
+python main_analyzer.py -case [name of file]
+```
+
+#### Parameters
+
+* `case`: Name of test case file, without file extension.
+
+* `abs`: Type of abstraction, optional values are `str` and `int`, default value is `str`.

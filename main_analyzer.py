@@ -275,11 +275,11 @@ if __name__ == '__main__':
         "\t\t[Prefix/Suffix Abstraction]: {:.2f}%".format(pre_suf_avg_cover*100),
         "\t\t[Bricks (Regex) Abstraction]: {:.2f}%".format(bricks_avg_cover*100),
         ]
-    print("=" * max(len(info) + (len(info.split("\t")) - 1) * 3 for info in analysis_print))
+    print("=" * max(len(info.expandtabs())+2 for info in analysis_print))
     print("Analysis Conclusion")
-    print("=" * max(len(info) + (len(info.split("\t")) - 1) * 3 for info in analysis_print))
+    print("=" * max(len(info.expandtabs())+2 for info in analysis_print))
     print("\n".join(analysis_print))
-    print("-" * max(len(info) + (len(info.split("\t")) - 1) * 3 for info in analysis_print))
+    print("-" * max(len(info.expandtabs())+2 for info in analysis_print))
 
     if total_case_num > 0:
         if not is_strings:
