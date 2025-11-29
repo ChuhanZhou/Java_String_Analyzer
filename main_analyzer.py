@@ -13,6 +13,7 @@ syntaxer.JAVA_ROOT_PATH = "."
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Static Analyzer")
     parser.add_argument("-case", type=str, default="Strings", help="Name of test case.")
+    parser.add_argument("-abs", type=str, default="str", help="Type of abstraction (str|int)")
 
     args = parser.parse_args()
 
@@ -40,7 +41,7 @@ if __name__ == '__main__':
                         "out of bounds": 0, "null pointer": 0, "*": 0}
     total_interval_paths = {"ok": 0, "divide by zero": 0, "assertion error": 0,
                             "out of bounds": 0, "null pointer": 0, "*": 0}
-    is_strings = True
+    is_strings = args.abs == "str"
     method_results = {}
 
     for method in methods:
@@ -115,10 +116,11 @@ if __name__ == '__main__':
 
         print("\t\t[Result]:")
         for result_type in results:
-            print("\t\t\t[{}]: {:.1f}% | {}".format(result_type,results[result_type]/sum(results.values())*100,results[result_type]))
-            if result_type not in dynamic_results:
-                dynamic_results[result_type] = 0
-            dynamic_results[result_type]+=results[result_type]/sum(results.values())*100
+            if sum(results.values())>0:
+                print("\t\t\t[{}]: {:.1f}% | {}".format(result_type,results[result_type]/sum(results.values())*100,results[result_type]))
+                if result_type not in dynamic_results:
+                    dynamic_results[result_type] = 0
+                dynamic_results[result_type]+=results[result_type]/sum(results.values())*100
 
         # Static Analysis
         print("\t[Static Analysis]")
@@ -231,33 +233,39 @@ if __name__ == '__main__':
             method_results[method_name]['bricks_errors'] = bricks_errors
             method_results[method_name]['integrated_errors'] = integrated_errors
 
+    case_pass_rate = 0
+    case_avg_cover = 0
+    fuzz_avg_cover = 0
+    integrate_avg_cover = 0
+    pre_suf_avg_cover = 0
+    bricks_avg_cover = 0
 
     if total_case_num>0:
         case_pass_rate = passed_case_num / total_case_num * 10 ** 2
-        case_avg_cover = sum(case_covers)/len(case_covers)
-        fuzz_avg_cover = sum(fuzz_covers)/len(fuzz_covers)
-        integrate_avg_cover = sum(integrate_covers)/len(integrate_covers)
+    if len(case_covers)>0:
+        case_avg_cover = sum(case_covers) / len(case_covers)
+    if len(fuzz_covers)>0:
+        fuzz_avg_cover = sum(fuzz_covers) / len(fuzz_covers)
+    if len(integrate_covers)>0:
+        integrate_avg_cover = sum(integrate_covers) / len(integrate_covers)
+    if len(pre_suf_covers)>0:
         pre_suf_avg_cover = sum(pre_suf_covers)/len(pre_suf_covers)
-        bricks_avg_cover = sum(bricks_covers)/len(bricks_covers)
-    else:
-        case_pass_rate = 0
-        case_avg_cover = 0
-        fuzz_avg_cover = 0
-        integrate_avg_cover = 0
-        pre_suf_avg_cover = 0
-        bricks_avg_cover = 0
+    if len(bricks_covers)>0:
+        bricks_avg_cover = sum(bricks_covers) / len(bricks_covers)
 
     analysis_print = [
         "[Case Pass Rate]: {:.2f}% ({}/{})".format(case_pass_rate,passed_case_num,total_case_num),
         "[Dynamic Analysis Result]",]
 
     for result_type in dynamic_results:
-        analysis_print.append("\t[{}]: {:.1f}%".format(result_type, dynamic_results[result_type] / sum(dynamic_results.values()) * 100))
+        if sum(dynamic_results.values()) > 0:
+            analysis_print.append("\t[{}]: {:.1f}%".format(result_type, dynamic_results[result_type] / sum(dynamic_results.values()) * 100))
 
     analysis_print.append("[Static Analysis Result]")
 
     for result_type in static_results:
-        analysis_print.append("\t[{}]: {:.1f}%".format(result_type, static_results[result_type] / sum(static_results.values()) * 100))
+        if sum(static_results.values())>0:
+            analysis_print.append("\t[{}]: {:.1f}%".format(result_type, static_results[result_type] / sum(static_results.values()) * 100))
 
     analysis_print += [
         "[Average Coverage]",
