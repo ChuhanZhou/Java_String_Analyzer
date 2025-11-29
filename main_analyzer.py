@@ -91,8 +91,11 @@ if __name__ == '__main__':
         # Static Analysis
 
 
-    
-    analysis_print = "[Case Pass Rate]: {:.2f}% ({}/{})".format(passed_case_num/total_case_num*10**2,passed_case_num,total_case_num)
+    if total_case_num>0:
+        case_pass_rate = passed_case_num / total_case_num * 10 ** 2
+    else:
+        case_pass_rate = 0
+    analysis_print = "[Case Pass Rate]: {:.2f}% ({}/{})".format(case_pass_rate,passed_case_num,total_case_num)
     print("-"*len(analysis_print))
     print(analysis_print)
     print("-"*len(analysis_print))
