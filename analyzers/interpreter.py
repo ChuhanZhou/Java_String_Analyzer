@@ -18,7 +18,7 @@ class StringBuilderModel:
     def __repr__(self):
         return f"<StringBuilderRef ID={self.reference_id}>"
 
-def run_bytecodes(bytecodes_tuple, input_values):
+def run_bytecodes(bytecodes_tuple, input_values, pc_set=set()):
     modifiers, instructions = bytecodes_tuple
     
 
@@ -28,13 +28,13 @@ def run_bytecodes(bytecodes_tuple, input_values):
     
     stack = []
     pc = 0
- 
 
     for _ in range(50000):
         if pc >= len(instructions):
             return "ok"
-        
-        
+        else:
+            pc_set.add(pc)
+
         instruction = instructions[pc]
         
         offset = instruction[0]
@@ -312,10 +312,19 @@ def run_bytecodes(bytecodes_tuple, input_values):
                 if not isinstance(string_obj, str):
                     return "type error"
                 stack.append(1 if string_obj.startswith(prefix) else 0)
+
+            elif "endswith" in method_desc.lower():
+                suffix = stack.pop()
+                string_obj = stack.pop()
+                if string_obj is None or suffix is None:
+                    return "null pointer exception"
+                if not isinstance(string_obj, str):
+                    return "type error"
+                stack.append(1 if string_obj.endswith(suffix) else 0)
             
             # String.matches(String) - for regex
             elif "matches" in method_desc.lower():
-                regex = stack.pop()
+                regex = bytes(stack.pop(), "utf-8").decode("unicode_escape")
                 string_obj = stack.pop()
                 if string_obj is None or regex is None:
                     return "null pointer exception"
@@ -328,7 +337,7 @@ def run_bytecodes(bytecodes_tuple, input_values):
                     stack.append(0)
             
             else:
-                # Unknown method - just pop the object and any args
+                #just pop the object and any args
                 if stack:
                     stack.pop()
             
@@ -362,8 +371,7 @@ def run_bytecodes(bytecodes_tuple, input_values):
                     result = sb.toString()
                     stack.append(result)
             else:
-                # Unknown static method - do nothing
-                pass
+                raise NotImplementedError(f"Static method not implemented: {method_desc}")
             
             pc += 1
         
@@ -586,5 +594,7 @@ def run_bytecodes(bytecodes_tuple, input_values):
 
 def run_test_case(bytecodes, case_parameters, method_parameters):
     input_values = case_parameters
-    return run_bytecodes(bytecodes, input_values)
+    pc_set = set()
+    result = run_bytecodes(bytecodes, input_values,pc_set)
+    return result, pc_set
 

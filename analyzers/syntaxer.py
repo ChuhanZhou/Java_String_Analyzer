@@ -5,6 +5,8 @@ from pathlib import Path
 import re
 import subprocess
 import os
+import itertools
+from javatools import unpack_class
 
 # could not find file, so making the root path absolute (derived from __file__)
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -88,14 +90,28 @@ class JavaMethod(object):
 
             type_values[value_type].add(value)
 
+            if value_type == "chr":
+                type_values["str"].add(value)
+
             if value_type == "str":
                 if len(value) == 1:
                     if "chr" not in type_values:
                         type_values["chr"] = set()
 
                     type_values["chr"].add(value)
-                else:
-                    type_values["int"].add(len(value))
+                #type_values["int"].add(len(value))
+
+        # generate int based on string combination
+        if "str" in type_values and len(type_values["str"])>1:
+            str_len_list = [len(s) for s in type_values["str"]]
+
+            #for loop
+            str_for_result = set(i*l for i,l in list(itertools.product(type_values["int"],str_len_list)))
+            type_values["int"] = type_values["int"] | set(str_len_list) | str_for_result
+
+            #str + str
+            for n in range(1,len(str_len_list)):
+                type_values["int"] = type_values["int"] | set(sum(len_list) for len_list in list(itertools.permutations(str_len_list, n+1)))
 
         parameter_values = {}
         array_parameter_values = None
@@ -107,7 +123,7 @@ class JavaMethod(object):
             else:
                 parameter_values[parameter["name"]] = set()
 
-            if parameter["type"][1] and array_parameter_values is None: #array
+            if (parameter["type"][1] or parameter["type"][0] == "chr") and array_parameter_values is None: #array
                 array_parameter_values = type_values["int"]
 
         return parameter_values, array_parameter_values
@@ -130,6 +146,8 @@ class JavaMethod(object):
                         #case "iload":
                         #    bytecode_values.add(value)
                         case "caload":
+                            bytecode_values.add(chr(value))
+                        case "aload":
                             bytecode_values.add(chr(value))
                         case others:
                             bytecode_values.add(value)
@@ -285,18 +303,27 @@ def compile(name):
         "/".join([JAVA_ROOT_PATH, JAVA_MAIN_PATH, JAVA_CASE_PATH, "{}.java".format(name)]),
     ], check=True)
 
-def get_bootstrap_arguments(name):
+def get_constant_pool(name):
+    with open("{}/jpamb/cases/{}.class".format("/".join([JAVA_ROOT_PATH, JAVA_CLASS_PATH]),name), 'rb') as f:
+        classinfo = unpack_class(f)
+    return classinfo.cpool.consts
+
+def get_bootstrap_arguments(name,constant_pool=None):
     result = subprocess.run(["javap", "-v", "-classpath", "/".join([JAVA_ROOT_PATH, JAVA_CLASS_PATH]),"jpamb.cases.{}".format(name)], capture_output=True, text=True, check=True)
     #print(result.stdout)
     bootstrap_argument_info = re.findall(r'BootstrapMethods:.*?(?=\n\S)', result.stdout, re.S)
 
     if len(bootstrap_argument_info)==1:
+        if constant_pool is None:
+            constant_pool = get_constant_pool(name)
         bootstrap_argument_info = bootstrap_argument_info[0]
         bootstrap_args = {}
 
-        for i,arg_info in re.findall(r'^\s*(\d+):.*?Method arguments:\s*#\d+\s(\S+)', bootstrap_argument_info, re.M | re.S):
+        for i,type_cp_i in re.findall(r'^\s*(\d+):.*?Method arguments:\s*#(\d+)\s', bootstrap_argument_info, re.M | re.S):
+            arg_cp_i = constant_pool[int(type_cp_i)][-1]
+            arg_info = constant_pool[int(arg_cp_i)][-1]
             args = []
-            for v in arg_info.split('\\u0001'):
+            for v in arg_info.split('\x01'):
                 if v != "":
                     args.append(v)
                 args.append(None)
@@ -332,7 +359,8 @@ def decompile_bytecode(name):
     result = subprocess.run(["javap", "-c", "-classpath", "/".join([JAVA_ROOT_PATH, JAVA_CLASS_PATH]), "jpamb.cases.{}".format(name)],capture_output=True, text=True, check=True)
 
     method_bytecode_texts = result.stdout.split("\n\n")[1:]
-    bootstrap_args = get_bootstrap_arguments(name)
+    constant_pool = get_constant_pool(name)
+    bootstrap_args = get_bootstrap_arguments(name,constant_pool)
 
     for decompiled_text in method_bytecode_texts:
         method_info, codes = decompiled_text.split("Code:")
@@ -346,7 +374,7 @@ def decompile_bytecode(name):
         method_name = re.findall(r'.+?(?=\()', method_info)[0].split(" ")[-1]
         bytecodes = []
         for line in codes.split("\n"):
-            bytecode_info = decode_bytecode(line,bootstrap_args)
+            bytecode_info = decode_bytecode(line,constant_pool,bootstrap_args)
             if bytecode_info is None:
                 continue
             bytecodes.append(bytecode_info)
@@ -354,7 +382,7 @@ def decompile_bytecode(name):
         method_bytecodes[method_name] = (method_access,bytecodes)
     return method_bytecodes
 
-def decode_bytecode(code_line,bootstrap_args):
+def decode_bytecode(code_line,constant_pool,bootstrap_args):
     code_line = code_line.strip()
     index = code_line.split(":")[0]
     if index.isdigit():
@@ -366,7 +394,7 @@ def decode_bytecode(code_line,bootstrap_args):
     constant_info = None
     info_list = opcode_info
     for info in code_line.split(": ")[1].strip().split(" "):
-        if info == "":
+        if info == "" and constant_info is None:
             continue
         elif info == "//":
             constant_info = []
@@ -394,9 +422,9 @@ def decode_bytecode(code_line,bootstrap_args):
             constant_type = constant_type.lower()
 
         if len(constant_info)>2: #reconstruct constant info
-            constant_value = [constant_info[0]," ".join(constant_info[1:])]
+            constant_value = " ".join(constant_info[1:])
         elif len(constant_info) == 1:
-            constant_value = ""
+            constant_value = None
         else:
             constant_value = constant_info[1]
 
@@ -409,6 +437,11 @@ def decode_bytecode(code_line,bootstrap_args):
                     "return": [JAVA_TYPE_MAP[v][0] for v in re.findall(r'(?<=L).*?(?=;)',re.findall(r'(?<=\)).*', constant_value)[0])],
                 }
                 decode_info.append(dynamic_method)
+            case "str":
+                type_cp_i = opcode_info[-1][1:]
+                value_cp_i = constant_pool[int(type_cp_i)][-1]
+                constant_value = constant_pool[int(value_cp_i)][-1]
+                decode_info.append((constant_type,constant_value))
             case others:
                 decode_info.append((constant_type,constant_value))
 
@@ -433,6 +466,9 @@ def get_simplify_ast(name):
 
 if __name__ == '__main__':
     methods = get_simplify_ast("Strings")
+
+    a = chr(10)
+    a=1
 
     for method in methods:
         print(method.syntactic_report())
