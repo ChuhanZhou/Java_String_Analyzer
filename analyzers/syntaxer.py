@@ -311,7 +311,7 @@ def get_constant_pool(name):
 def get_bootstrap_arguments(name,constant_pool=None):
     result = subprocess.run(["javap", "-v", "-classpath", "/".join([JAVA_ROOT_PATH, JAVA_CLASS_PATH]),"jpamb.cases.{}".format(name)], capture_output=True, text=True, check=True)
     #print(result.stdout)
-    bootstrap_argument_info = re.findall(r'BootstrapMethods:.*?(?=\n\S|$)', result.stdout, re.S)
+    bootstrap_argument_info = re.findall(r'BootstrapMethods:.*?(?=\n\S)', result.stdout, re.S)
 
     if len(bootstrap_argument_info)==1:
         if constant_pool is None:
