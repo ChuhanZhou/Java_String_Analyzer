@@ -196,14 +196,22 @@ class StringAbstraction:
                     combined = s1 + p2
                     new_suffixes.add(combined[-self.max_prefix_depth:])
         
-        # Add lengths
+        # add lengths
         new_min_len = self.min_len + other.min_len
         new_max_len = self.max_len + other.max_len
         if new_max_len > self.max_length:
             new_max_len = self.max_length
-        
-        return StringAbstraction(new_prefixes,  new_suffixes, new_min_len, new_max_len,
-                                self.max_prefix_depth, self.max_length)
+
+        # use keyword args so we dont mess up the order
+        return StringAbstraction(
+            prefixes=new_prefixes,
+            suffixes=new_suffixes,
+            min_len=new_min_len,
+            max_len=new_max_len,
+            can_be_null=self.can_be_null or other.can_be_null,
+            max_prefix_depth=self.max_prefix_depth,
+            max_length=self.max_length,
+        )
     
     def length(self) -> tuple[int, int]:
         """
@@ -375,4 +383,7 @@ class StringAbstraction:
         null_str = "+null" if self.can_be_null else ""
         prefix_str = ",".join(sorted(self.prefixes)) if self.prefixes else "∅"
         suffix_str = ",".join(sorted(self.suffixes)) if self.suffixes else "∅"
-        return f"{{prefix={prefix_str}, len=[{self.min_len},{self.max_len}]{null_str}}}"
+        return (
+            f"{{prefix={prefix_str}, suffix={suffix_str}, "
+            f"len=[{self.min_len},{self.max_len}]{null_str}}}"
+        )
